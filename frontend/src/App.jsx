@@ -1,30 +1,42 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Navbar from './components/Navbar';
+import MainLayout from './layouts/MainLayout';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import NewsDetails from './pages/NewsDetails';
+import DataOverview from './pages/DataOverview';
+import DataDetail from './pages/DataDetail';
+import Narratives from './pages/Narratives';
+import NarrativeDetail from './pages/NarrativeDetail';
+import Sources from './pages/Sources';
+import Topics from './pages/Topics';
+import Profile from './pages/Profile';
+import Search from './pages/Search';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
     <Router>
-      <Navbar />
-      <div className="main-content container">
-        <Routes>
-          {/* Public Routes */}
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        
+        {/* Main Application Shell */}
+        <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-
+          
           {/* User Protected Routes */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/news" element={<Dashboard />} />
-            <Route path="/news/:id" element={<NewsDetails />} />
+            <Route path="/news" element={<DataOverview />} />
+            <Route path="/news/:id" element={<DataDetail />} />
+            <Route path="/narratives" element={<Narratives />} />
+            <Route path="/narratives/:id" element={<NarrativeDetail />} />
+            <Route path="/sources" element={<Sources />} />
+            <Route path="/topics" element={<Topics />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/search" element={<Search />} />
           </Route>
-        </Routes>
-      </div>
+        </Route>
+      </Routes>
     </Router>
   );
 }

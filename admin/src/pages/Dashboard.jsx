@@ -1,113 +1,86 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../services/api';
-import { Database, Plus, Search, Cpu, FileText } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { Database, Hash, Cpu, AlertCircle } from 'lucide-react';
 
 const Dashboard = () => {
-  const [stats, setStats] = useState(0);
+  const [stats, setStats] = useState({
+    documents: 0,
+    sources: 0,
+    processing: null
+  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const { data } = await api.get('/news');
-        setStats(data.length);
+        const [docsRes, sourcesRes, procRes] = await Promise.all([
+          axios.get('/api/news', { withCredentials: true }),
+          axios.get('/api/sources', { withCredentials: true }),
+          axios.get('/api/processing/status', { withCredentials: true })
+        ]);
+        
+        setStats({
+          documents: docsRes.data.total || docsRes.data.length || 0,
+          sources: sourcesRes.data.length || 0,
+          processing: procRes.data
+        });
+        setLoading(false);
       } catch (err) {
         console.error(err);
+        setLoading(false);
       }
     };
     fetchStats();
   }, []);
 
+  if (loading) return <div className="p-4">Loading operational dashboard...</div>;
+
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="mb-2">Overview</h1>
-        <p className="text-light">Monitor and manage narrative data collected for NIT Raipur.</p>
+      <div className="mb-6">
+        <h1>Operations Dashboard</h1>
+        <p className="text-secondary mt-1">System overview and intelligence pipeline status.</p>
       </div>
-      
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 mb-8">
+
+      <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="card">
-          <div className="text-sm text-light mb-2 flex items-center gap-2">
-            <Database size={16} /> Total Records
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-secondary">Total Documents</h3>
+            <Database size={20} className="text-muted" />
           </div>
-          <div style={{ fontSize: '2.5rem', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
-            {stats}
-          </div>
-          <div className="text-xs text-muted">All collected source material</div>
-        </div>
-        
-        {/* Placeholders for future data */}
-        <div className="card" style={{ opacity: 0.7 }}>
-          <div className="text-sm text-light mb-2 flex items-center gap-2">
-            <FileText size={16} /> Sources
-          </div>
-          <div style={{ fontSize: '2.5rem', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
-            --
-          </div>
-          <div className="text-xs text-muted">Unique tracking sources</div>
+          <h2>{stats.documents}</h2>
         </div>
 
-        <div className="card" style={{ opacity: 0.7 }}>
-          <div className="text-sm text-light mb-2 flex items-center gap-2">
-            <Search size={16} /> Added Recently
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-secondary">Active Sources</h3>
+            <Hash size={20} className="text-muted" />
           </div>
-          <div style={{ fontSize: '2.5rem', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '0.5rem', lineHeight: 1 }}>
-            --
+          <h2>{stats.sources}</h2>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-secondary">Processing Status</h3>
+            <Cpu size={20} className="text-muted" />
           </div>
-          <div className="text-xs text-muted">In the last 7 days</div>
+          <h2>
+            {stats.processing?.breakdown?.completed || 0} 
+            <span className="text-secondary text-sm ml-2 font-normal">/ {stats.documents} Processed</span>
+          </h2>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Quick Actions */}
-        <div>
-          <h2 className="text-lg mb-4" style={{ fontSize: '1.25rem' }}>Quick Actions</h2>
-          <div className="grid gap-4">
-            <Link to="/news/add" className="card card-interactive flex items-center justify-between" style={{ padding: '1rem 1.5rem', display: 'flex' }}>
-              <div>
-                <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>Add New Data</div>
-                <div className="text-xs text-light">Manually insert a source record</div>
-              </div>
-              <Plus className="text-muted" />
-            </Link>
-            
-            <Link to="/news" className="card card-interactive flex items-center justify-between" style={{ padding: '1rem 1.5rem', display: 'flex' }}>
-              <div>
-                <div style={{ fontWeight: '500', marginBottom: '0.25rem' }}>Browse Data Library</div>
-                <div className="text-xs text-light">View and manage collected narratives</div>
-              </div>
-              <Search className="text-muted" />
-            </Link>
-          </div>
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4 text-warning">
+          <AlertCircle size={20} />
+          <h3 className="text-warning m-0">AI Integration Pending</h3>
         </div>
-
-        {/* Processing Pipeline */}
-        <div>
-          <h2 className="text-lg mb-4" style={{ fontSize: '1.25rem' }}>Processing Pipeline</h2>
-          <div className="card" style={{ borderStyle: 'dashed', backgroundColor: 'transparent' }}>
-            <div className="flex items-center gap-3 mb-4">
-              <div style={{ padding: '0.5rem', backgroundColor: 'var(--surface)', borderRadius: 'var(--radius-md)' }}>
-                <Cpu size={20} className="text-accent" />
-              </div>
-              <div>
-                <div style={{ fontWeight: '500' }}>Narrative Engine</div>
-                <div className="text-xs text-light">Transform collected data into insights</div>
-              </div>
-            </div>
-            
-            <div className="flex-col gap-2 mb-6 text-sm text-light">
-              <div className="flex items-center gap-2">• Entity Extraction</div>
-              <div className="flex items-center gap-2">• Sentiment Analysis</div>
-              <div className="flex items-center gap-2">• Stance Detection</div>
-              <div className="flex items-center gap-2">• Topic Modeling</div>
-            </div>
-
-            <button className="btn btn-secondary" disabled style={{ width: '100%', opacity: 0.8 }}>
-              Coming Soon
-            </button>
-          </div>
-        </div>
+        <p className="text-secondary leading-relaxed">
+          The database and API routing architecture has been successfully overhauled to support the incoming Python AI service. 
+          Currently, the AI pipeline is structurally mapped but disabled to ensure system stability during this phase. 
+          All documents added will remain in the `not_processed` queue until integration is activated.
+        </p>
       </div>
     </div>
   );
