@@ -278,7 +278,7 @@ h4 { font-size: 1.125rem; } /* 18px */
   font-weight: 600;
 }
 
-.form-control {
+.form-control, .form-input {
   width: 100%;
   padding: 0.625rem 1rem;
   background-color: #ffffff;
@@ -291,17 +291,17 @@ h4 { font-size: 1.125rem; } /* 18px */
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
-.form-control:focus {
+.form-control:focus, .form-input:focus {
   outline: none;
   border-color: var(--accent-blue);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
-.form-control::placeholder {
+.form-control::placeholder, .form-input::placeholder {
   color: var(--text-muted);
 }
 
-textarea.form-control {
+textarea.form-control, textarea.form-input {
   min-height: 120px;
   resize: vertical;
   line-height: 1.5;
