@@ -113,3 +113,13 @@ The "Processing" section in the Admin Dashboard is currently a placeholder. Futu
 - Sentiment & Stance Analysis
 - Topic Modeling and Narrative Clustering
 - LLM Integrations
+
+## Future Features (Next Phase)
+
+The "Processing" section in the Admin Dashboard is currently a placeholder. Future iterations will include:
+
+- Automated web scraping
+- NLP Entity Extraction
+- Sentiment & Stance Analysis
+- Topic Modeling and Narrative Clustering
+- LLM Integrations
