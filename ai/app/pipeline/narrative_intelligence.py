@@ -6,36 +6,54 @@ from dotenv import load_dotenv
 from google import genai
 from pydantic import BaseModel, Field
 
-from app.pipeline.schemas import Narrative, NarrativeEvidence, NarrativeAnalysis, FinalNarrative
+from app.pipeline.schemas import (
+    Narrative,
+    NarrativeEvidence,
+    NarrativeAnalysis,
+    FinalNarrative,
+)
+from app.pipeline.gemini_utils import generate_with_retry
 
 load_dotenv()
 
+
 class IntelligenceResult(BaseModel):
-    intelligence: str = Field(description="Concise intelligence summary for this specific narrative, grounded strictly in the provided evidence and analysis.")
-    recommendation: str = Field(description="Actionable recommendation if evidence is sufficient. Otherwise, state that evidence is insufficient for a strong recommendation.")
+    intelligence: str = Field(
+        description="Concise intelligence summary for this specific narrative, grounded strictly in the provided evidence and analysis."
+    )
+    recommendation: str = Field(
+        description="Actionable recommendation if evidence is sufficient. Otherwise, state that evidence is insufficient for a strong recommendation."
+    )
+
 
 _client = None
+
 
 def get_gemini_client():
     global _client
     if _client is None:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not found. Please add it to your .env file.")
+            raise RuntimeError(
+                "GEMINI_API_KEY not found. Please add it to your .env file."
+            )
         _client = genai.Client(api_key=api_key)
     return _client
 
-def generate_intelligence(analyzed_data: List[Tuple[Narrative, NarrativeEvidence, NarrativeAnalysis]]) -> List[FinalNarrative]:
+
+def generate_intelligence(
+    analyzed_data: List[Tuple[Narrative, NarrativeEvidence, NarrativeAnalysis]],
+) -> List[FinalNarrative]:
     if not analyzed_data:
         return []
 
     client = get_gemini_client()
     final_narratives = []
-    
+
     from google.genai import types
 
     for narrative, evidence, analysis in analyzed_data:
-        
+
         prompt = f"""
 You are an intelligence analyst.
 
@@ -59,25 +77,28 @@ Strength Score (0 to 1): {analysis.strength}
 """
 
         try:
-            response = client.models.generate_content(
+            response = generate_with_retry(
+                client=client,
                 model="gemini-3.6-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=IntelligenceResult,
-                )
+                ),
             )
 
             result = IntelligenceResult.model_validate_json(response.text)
-            
-            final_narratives.append(FinalNarrative(
-                narrative_id=narrative.narrative_id,
-                narrative=narrative.text,
-                supporting_evidence=evidence,
-                analysis=analysis,
-                intelligence=result.intelligence.strip(),
-                recommendation=result.recommendation.strip()
-            ))
+
+            final_narratives.append(
+                FinalNarrative(
+                    narrative_id=narrative.narrative_id,
+                    narrative=narrative.text,
+                    supporting_evidence=evidence,
+                    analysis=analysis,
+                    intelligence=result.intelligence.strip(),
+                    recommendation=result.recommendation.strip(),
+                )
+            )
 
         except Exception as e:
             raise RuntimeError(f"Gemini narrative intelligence generation failed: {e}")

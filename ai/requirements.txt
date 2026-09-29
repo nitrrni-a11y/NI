@@ -1,6 +1,6 @@
 fastapi==0.110.0
 uvicorn==0.27.1
-pydantic==2.6.3
+pydantic>=2.8.0,<3
 pytest==8.0.2
 python-dotenv==1.0.1
 numpy==1.26.4
@@ -12,7 +12,7 @@ transformers==4.38.2
 torch==2.2.1
 langdetect==1.0.9
 deep-translator==1.11.4
-litellm==1.31.2
+# litellm==1.31.2
 vaderSentiment==3.3.2
 google-genai
 python-multipart

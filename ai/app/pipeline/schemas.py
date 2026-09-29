@@ -24,6 +24,48 @@ class PreprocessedDocument(BaseModel):
     published_at: Optional[str]
     collected_at: Optional[str]
 
+class BasicEntity(BaseModel):
+    text: str
+    type: str
+    source: str = "spacy"
+
+
+class BasicSentence(BaseModel):
+    sentence_id: str
+    text: str
+    topic_id: Optional[int] = None
+
+
+class BasicDocumentAnalysis(BaseModel):
+    document_id: str
+    source: str
+    source_type: str
+    author: str
+    language: str
+    cleaned_text: str
+    sentences: List[BasicSentence]
+    entities: List[BasicEntity]
+    topic_ids: List[int] = Field(default_factory=list)
+
+
+class TopicResult(BaseModel):
+    topic_id: int
+    label: str
+    keywords: List[str]
+    sentence_ids: List[str]
+    document_ids: List[str]
+
+
+class BasicAnalysisRequest(BaseModel):
+    documents: List[RawDocument]
+
+
+class BasicAnalysisResponse(BaseModel):
+    documents_processed: int
+    sentences_processed: int
+    topics_identified: int
+    documents: List[BasicDocumentAnalysis]
+    topics: List[TopicResult]
 # ============================================================
 # CLAIMS
 # ============================================================

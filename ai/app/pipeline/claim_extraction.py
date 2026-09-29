@@ -7,6 +7,7 @@ from google import genai
 from pydantic import BaseModel
 
 from app.pipeline.schemas import PreprocessedDocument, Claim
+from app.pipeline.gemini_utils import generate_with_retry
 
 load_dotenv()
 
@@ -50,7 +51,8 @@ Text:
 
     try:
         from google.genai import types
-        response = client.models.generate_content(
+        response =generate_with_retry(
+            client=client,
             model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
