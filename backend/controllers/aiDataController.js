@@ -137,12 +137,137 @@ const getProcessingStatus = async (req, res) => {
     res.json({
       total,
       breakdown: statusMap,
-      aiIntegrationEnabled: false,
-      message: 'AI processing integration will be enabled in the next phase.'
+      aiIntegrationEnabled: true,
+      message: 'AI processing pipeline is active and ready to process batches.'
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error fetching processing status' });
+  }
+};
+
+// @desc    Trigger AI processing batch for unprocessed documents
+// @route   POST /api/processing/run-batch
+// @access  Private/Admin
+const runBatchProcessing = async (req, res) => {
+  try {
+    const batchSize = Number(req.query.batchSize) || 10;
+
+    // 1. Fetch unprocessed documents
+    const unprocessedDocs = await News.find({
+      processingStatus: { $in: ['not_processed', 'pending', 'failed'] }
+    }).limit(batchSize);
+
+    if (unprocessedDocs.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No pending documents found to process.',
+        documentsProcessed: 0
+      });
+    }
+
+    const docIds = unprocessedDocs.map(d => d._id);
+
+    // 2. Mark documents as 'processing'
+    await News.updateMany(
+      { _id: { $in: docIds } },
+      { $set: { processingStatus: 'processing', processingStartedAt: new Date() } }
+    );
+
+    // 3. Format documents for AI service schema
+    const formattedDocs = unprocessedDocs.map(d => ({
+      document_id: d._id.toString(),
+      text: d.rawText || d.content,
+      source: d.source || 'Unknown',
+      source_type: d.sourceType || 'Unknown',
+      author: d.author || 'Unknown',
+      published_at: d.publicationDate ? d.publicationDate.toISOString() : null,
+      collected_at: d.collectedDate ? d.collectedDate.toISOString() : null
+    }));
+
+    // 4. Fetch existing narratives from DB for identity resolution
+    const existingNarrativesList = await Narrative.find({}, { narrativeId: 1, description: 1 });
+    const formattedExisting = existingNarrativesList.map(n => ({
+      narrative_id: n.narrativeId,
+      text: n.description
+    }));
+
+    // 5. Call AI microservice
+    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+    let aiResponse;
+    try {
+      const response = await axios.post(`${aiServiceUrl}/process/batch`, {
+        documents: formattedDocs,
+        existing_narratives: formattedExisting
+      }, { timeout: 120000 }); // 2 min timeout for AI calls
+      aiResponse = response.data;
+    } catch (aiErr) {
+      // Revert status to failed
+      await News.updateMany(
+        { _id: { $in: docIds } },
+        { 
+          $set: { 
+            processingStatus: 'failed', 
+            processingError: aiErr.response?.data?.detail || aiErr.message 
+          } 
+        }
+      );
+      return res.status(502).json({
+        message: `AI Service connection error: ${aiErr.response?.data?.detail || aiErr.message}. Ensure Python FastAPI is running on port 8000.`,
+      });
+    }
+
+    // 6. Save or update Narratives
+    if (aiResponse.narratives && Array.isArray(aiResponse.narratives)) {
+      for (const nar of aiResponse.narratives) {
+        await Narrative.findOneAndUpdate(
+          { narrativeId: nar.narrative_id },
+          {
+            $set: {
+              narrativeId: nar.narrative_id,
+              description: nar.narrative,
+              intelligence: nar.intelligence || '',
+              recommendation: nar.recommendation || '',
+              supportingEvidence: nar.supporting_evidence || {},
+              analysis: nar.analysis || {},
+              score: nar.analysis?.strength || 0,
+              scoreComponents: nar.analysis || {},
+              trend: nar.analysis?.recurrence === 'high' ? 'increasing' : 'stable',
+              trendStrength: nar.analysis?.strength || 0,
+              lastObservedAt: new Date(),
+            },
+            $addToSet: {
+              claimIds: { $each: nar.supporting_evidence?.claim_ids || [] }
+            }
+          },
+          { upsert: true, new: true }
+        );
+      }
+    }
+
+    // 7. Mark processed documents as completed
+    await News.updateMany(
+      { _id: { $in: docIds } },
+      { 
+        $set: { 
+          processingStatus: 'completed', 
+          processingCompletedAt: new Date(),
+          processingError: ''
+        } 
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `Successfully processed ${unprocessedDocs.length} documents!`,
+      documentsProcessed: unprocessedDocs.length,
+      narrativesCount: aiResponse.narratives?.length || 0,
+      data: aiResponse
+    });
+
+  } catch (error) {
+    console.error('Batch processing error:', error);
+    res.status(500).json({ message: 'Internal server error during batch processing' });
   }
 };
 
@@ -153,5 +278,7 @@ export {
   getClaimById,
   getNarratives,
   getNarrativeById,
-  getProcessingStatus
+  getProcessingStatus,
+  runBatchProcessing
 };
+

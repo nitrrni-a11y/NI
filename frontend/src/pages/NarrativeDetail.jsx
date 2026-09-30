@@ -42,6 +42,20 @@ const NarrativeDetail = () => {
         </div>
       </div>
 
+      {narrative.intelligence && (
+        <div className="card mb-4" style={{ borderColor: 'var(--primary-color)' }}>
+          <h3 className="mb-2" style={{ color: 'var(--primary-color)' }}>Executive Intelligence Brief</h3>
+          <p className="leading-relaxed text-secondary">{narrative.intelligence}</p>
+        </div>
+      )}
+
+      {narrative.recommendation && (
+        <div className="card mb-4" style={{ borderColor: 'var(--success-color)' }}>
+          <h3 className="mb-2" style={{ color: 'var(--success-color)' }}>Strategic Recommendation</h3>
+          <p className="leading-relaxed text-secondary">{narrative.recommendation}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <div className="card">
           <div className="card-header flex items-center gap-2">
