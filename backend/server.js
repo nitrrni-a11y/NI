@@ -12,7 +12,7 @@ dotenv.config();
 connectDB();
 
 const app = express();
-
+console.log(process.env.FRONTEND_URL);
 app.use(
   cors({
     origin: [process.env.FRONTEND_URL, process.env.ADMIN_URL],
