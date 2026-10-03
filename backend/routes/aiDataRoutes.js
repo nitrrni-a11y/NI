@@ -6,7 +6,8 @@ import {
   getClaimById,
   getNarratives,
   getNarrativeById,
-  getProcessingStatus
+  getProcessingStatus,
+  runBatchProcessing
 } from '../controllers/aiDataController.js';
 import { protect, admin } from '../middleware/authMiddleware.js';
 
@@ -22,5 +23,6 @@ router.get('/narratives/:id', protect, getNarrativeById);
 
 // Admin only routes
 router.get('/processing/status', protect, admin, getProcessingStatus);
+router.post('/processing/run-batch', protect, admin, runBatchProcessing);
 
 export default router;

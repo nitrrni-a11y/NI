@@ -5,22 +5,45 @@ import { Cpu, Play, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 const Processing = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [resultMessage, setResultMessage] = useState(null);
+
+  const fetchStatus = async () => {
+    try {
+      const { data } = await axios.get('/api/processing/status', { withCredentials: true });
+      setStats(data);
+      setLoading(false);
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const { data } = await axios.get('/api/processing/status', { withCredentials: true });
-        setStats(data);
-        setLoading(false);
-      } catch (err) {
-        console.error(err);
-        setLoading(false);
-      }
-    };
     fetchStatus();
   }, []);
 
+  const handleStartBatch = async () => {
+    setProcessing(true);
+    setResultMessage(null);
+    try {
+      const { data } = await axios.post('/api/processing/run-batch', {}, { withCredentials: true });
+      setResultMessage({ type: 'success', text: data.message });
+      await fetchStatus();
+    } catch (err) {
+      setResultMessage({ 
+        type: 'error', 
+        text: err.response?.data?.message || 'Error executing processing batch.' 
+      });
+      await fetchStatus();
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   if (loading) return <div className="p-4">Loading processing status...</div>;
+
+  const hasUnprocessed = (stats?.breakdown?.not_processed || 0) + (stats?.breakdown?.pending || 0) + (stats?.breakdown?.failed || 0) > 0;
 
   return (
     <div>
@@ -29,19 +52,36 @@ const Processing = () => {
           <h1>AI Processing Pipeline</h1>
           <p className="text-secondary mt-1">Manage the NLP and Narrative extraction queues.</p>
         </div>
-        <button className="btn btn-primary" disabled style={{ opacity: 0.6, cursor: 'not-allowed' }}>
-          <Play size={16} className="mr-2" /> Start Processing Batch
+        <button 
+          className="btn btn-primary" 
+          onClick={handleStartBatch}
+          disabled={processing || !hasUnprocessed}
+          style={{ opacity: processing || !hasUnprocessed ? 0.6 : 1, cursor: processing || !hasUnprocessed ? 'not-allowed' : 'pointer' }}
+        >
+          <Play size={16} className="mr-2" /> 
+          {processing ? 'Processing Batch...' : 'Start Processing Batch'}
         </button>
       </div>
 
-      <div className="card mb-6 border-warning">
+      {resultMessage && (
+        <div className={`p-4 mb-6 rounded ${resultMessage.type === 'success' ? 'bg-success text-white' : 'bg-error text-white'}`}>
+          {resultMessage.text}
+        </div>
+      )}
+
+      <div className={`card mb-6 ${stats?.aiIntegrationEnabled ? 'border-success' : 'border-warning'}`}>
         <div className="flex gap-3">
-          <AlertTriangle size={24} className="text-warning flex-shrink-0" />
+          {stats?.aiIntegrationEnabled ? (
+            <CheckCircle size={24} className="text-success flex-shrink-0" />
+          ) : (
+            <AlertTriangle size={24} className="text-warning flex-shrink-0" />
+          )}
           <div>
-            <h3 className="text-warning">AI Integration Pending</h3>
+            <h3 className={stats?.aiIntegrationEnabled ? 'text-success' : 'text-warning'}>
+              {stats?.aiIntegrationEnabled ? 'AI Pipeline Active & Ready' : 'AI Integration Pending'}
+            </h3>
             <p className="text-secondary mt-1 leading-relaxed">
-              {stats?.message || "AI processing integration will be enabled in the next phase."} 
-              The backend architecture is ready to accept the Python FastAPI service, but execution is currently disabled.
+              {stats?.message || "AI processing pipeline is connected."}
             </p>
           </div>
         </div>

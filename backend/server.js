@@ -12,10 +12,25 @@ dotenv.config();
 connectDB();
 
 const app = express();
-console.log(process.env.FRONTEND_URL);
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.ADMIN_URL,
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: [process.env.FRONTEND_URL, process.env.ADMIN_URL],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   })
 );
@@ -25,8 +40,8 @@ app.use(cookieParser());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/news', newsRoutes);
-app.use('/api/data', newsRoutes); // Alias for news
-app.use('/api', aiDataRoutes); // Exposes /api/sources, /api/topics, etc.
+app.use('/api/data', newsRoutes);
+app.use('/api', aiDataRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is running...');

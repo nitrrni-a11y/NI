@@ -44,6 +44,26 @@ const narrativeSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    intelligence: {
+      type: String,
+      default: '',
+    },
+    recommendation: {
+      type: String,
+      default: '',
+    },
+    supportingEvidence: {
+      type: mongoose.Schema.Types.Mixed, // { claim_ids, document_ids, sources }
+      default: {},
+    },
+    analysis: {
+      type: mongoose.Schema.Types.Mixed, // { claim_count, source_count, sentiment, temporal_information, recurrence, strength }
+      default: {},
+    },
+    confidence: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,
