@@ -31,8 +31,10 @@ const Navbar = () => {
         <div className="flex items-center gap-4">
           {!user ? (
             <>
-              <Link to="/login" className="btn btn-ghost">Login</Link>
-              <Link to="/register" className="btn btn-primary">Register</Link>
+              <Link to="/login" className="btn btn-ghost">User Login</Link>
+              <a href="http://localhost:5174/login" className="btn btn-primary" target="_blank" rel="noreferrer">
+                Admin Login
+              </a>
             </>
           ) : (
             <>

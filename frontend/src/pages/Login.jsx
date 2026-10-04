@@ -27,8 +27,8 @@ const Login = () => {
   };
 
   return (
-    <div className="container flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
-      <div className="card" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
+    <div className="login-page">
+      <div className="card login-card">
         <div className="text-center mb-8">
           <h2 style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>Welcome Back</h2>
           <p className="text-light text-sm">Sign in to access the platform</p>

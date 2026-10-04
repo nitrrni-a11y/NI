@@ -1,39 +1,52 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { 
-  LayoutDashboard, 
-  Database, 
-  MessageSquare, 
-  Hash, 
-  Network, 
-  Search, 
-  User, 
-  LogOut 
+import {
+  LayoutDashboard,
+  Network,
+  User,
+  LogOut,
+  MoonStar,
+  SunMedium,
 } from 'lucide-react';
+
+const getInitialTheme = () => {
+  const savedTheme = localStorage.getItem('ni-theme');
+  if (savedTheme) return savedTheme;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const [theme, setTheme] = useState(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('ni-theme', theme);
+  }, [theme]);
 
   const navItems = [
     { path: '/', label: 'Overview', icon: <LayoutDashboard size={18} /> },
     { path: '/narratives', label: 'Narratives', icon: <Network size={18} /> },
   ];
 
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
+
   return (
     <div className="app-container">
-      {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header">
           <h2>Narrative Intelligence</h2>
         </div>
-        
+
         <nav className="sidebar-nav">
           {navItems.map((item) => (
-            <Link 
-              key={item.path} 
-              to={item.path} 
+            <Link
+              key={item.path}
+              to={item.path}
               className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
             >
               {item.icon}
@@ -43,10 +56,18 @@ const MainLayout = () => {
         </nav>
       </aside>
 
-      {/* Main Content */}
       <main className="main-content">
         <header className="top-header">
           <div className="flex items-center gap-3">
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label="Toggle dark mode"
+              title="Toggle theme"
+            >
+              {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
+            </button>
+
             {user ? (
               <>
                 <Link to="/profile" className="flex items-center gap-2 text-secondary">

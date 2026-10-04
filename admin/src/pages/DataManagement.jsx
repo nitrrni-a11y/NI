@@ -301,19 +301,23 @@ const DataManagement = () => {
             {totalPages > 1 && (
               <div className="flex items-center gap-2">
                 <button 
-                  className="btn btn-ghost p-1" 
+                  className="pagination-arrow" 
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  aria-label="Previous page"
+                  title="Previous page"
                 >
-                  <ChevronLeft size={18} />
+                  <ChevronLeft size={15} />
                 </button>
                 <span className="text-sm text-secondary px-2">Page {currentPage} of {totalPages}</span>
                 <button 
-                  className="btn btn-ghost p-1" 
+                  className="pagination-arrow" 
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  aria-label="Next page"
+                  title="Next page"
                 >
-                  <ChevronRight size={18} />
+                  <ChevronRight size={15} />
                 </button>
               </div>
             )}
