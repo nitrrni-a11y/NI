@@ -33,10 +33,17 @@ const getSources = async (req, res) => {
 // @access  Private
 const getNarratives = async (req, res) => {
   try {
-    const narratives = await Narrative.find({}).sort({ 'analysis.strength': -1, lastObservedAt: -1 }).limit(50);
+
+    const allNarratives = await Narrative.find({});
+    const narratives = await Narrative.find({})
+      .sort({ 'analysis.strength': -1, lastObservedAt: -1 })
+      .limit(50);
     res.json(narratives);
   } catch (error) {
-    res.status(500).json({ message: 'Server error fetching narratives' });
+    console.error('Narratives error:', error);
+    res.status(500).json({
+      message: 'Server error fetching narratives'
+    });
   }
 };
 
