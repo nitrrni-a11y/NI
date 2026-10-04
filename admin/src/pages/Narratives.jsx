@@ -136,10 +136,6 @@ const Narratives = () => {
               <div className="flex flex-wrap items-center justify-between mb-4">
                 <div className="flex gap-4 text-xs font-semibold text-secondary">
                   <span className="flex items-center gap-1">
-                    <AlertCircle size={14} /> 
-                    Strength: {n.analysis?.strength ? (n.analysis.strength > 0.7 ? 'High' : (n.analysis.strength > 0.4 ? 'Medium' : 'Low')) : 'Unknown'}
-                  </span>
-                  <span className="flex items-center gap-1">
                     <TrendingUp size={14} /> 
                     Trend: {n.trend || 'Stable'}
                   </span>
@@ -200,14 +196,6 @@ const Narratives = () => {
                 <li className="flex justify-between border-b border-gray-200 pb-1">
                   <span className="text-secondary">Source Count</span>
                   <span className="font-semibold">{n.analysis?.source_count || 0}</span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="text-secondary">Strength</span>
-                  <span className="font-semibold">{(n.analysis?.strength || 0).toFixed(2)}</span>
-                </li>
-                <li className="flex justify-between border-b border-gray-200 pb-1">
-                  <span className="text-secondary">Sentiment</span>
-                  <span className="font-semibold">{(n.analysis?.sentiment || 0).toFixed(2)}</span>
                 </li>
                 <li className="flex justify-between">
                   <span className="text-secondary">Trend</span>
