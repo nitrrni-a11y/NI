@@ -23,7 +23,7 @@ const Navbar = () => {
           
           {user && (
             <div className="flex gap-4">
-              <Link to="/news" className="nav-link" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Explore / Data</Link>
+              <Link to="/narratives" className="nav-link" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Narratives</Link>
             </div>
           )}
         </div>
@@ -36,9 +36,9 @@ const Navbar = () => {
             </>
           ) : (
             <>
-              <button className="btn btn-ghost" style={{ padding: '0.5rem' }} title="Search (Coming Soon)">
+              <Link to="/search" className="btn btn-ghost" style={{ padding: '0.5rem' }} title="Search">
                 <Search size={18} />
-              </button>
+              </Link>
               <div style={{ width: '1px', height: '20px', backgroundColor: 'var(--border)' }}></div>
               <div className="flex items-center gap-2 text-sm text-light">
                 <User size={16} /> {user.name.split(' ')[0]}

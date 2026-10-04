@@ -7,42 +7,13 @@ const narrativeSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    topic: {
+      type: String,
+      default: 'Unknown',
+    },
     description: {
       type: String,
       required: true,
-    },
-    claimIds: {
-      type: [String],
-      default: [],
-    },
-    sources: {
-      type: [mongoose.Schema.Types.Mixed], // e.g., { source: 'News', claimCount: 5 }
-      default: [],
-    },
-    score: {
-      type: Number,
-      default: 0,
-    },
-    scoreComponents: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
-    },
-    trend: {
-      type: String,
-      enum: ['increasing', 'decreasing', 'stable', 'unknown'],
-      default: 'unknown',
-    },
-    trendStrength: {
-      type: Number,
-      default: 0,
-    },
-    firstObservedAt: {
-      type: Date,
-      default: Date.now,
-    },
-    lastObservedAt: {
-      type: Date,
-      default: Date.now,
     },
     intelligence: {
       type: String,
@@ -60,9 +31,9 @@ const narrativeSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed, // { claim_count, source_count, sentiment, temporal_information, recurrence, strength }
       default: {},
     },
-    confidence: {
-      type: Number,
-      default: 0,
+    lastObservedAt: {
+      type: Date,
+      default: Date.now,
     },
   },
   {

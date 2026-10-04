@@ -33,19 +33,10 @@ const Landing = () => {
       <div className="flex gap-3 mb-4">
         <div className="card flex-1">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-secondary">Data Analyzed</h3>
-            <Database size={20} className="text-muted" />
-          </div>
-          <h2>Live Stream</h2>
-          <Link to="/news" className="text-accent-blue mt-2 inline-block">View Intelligence Data &rarr;</Link>
-        </div>
-
-        <div className="card flex-1">
-          <div className="flex items-center justify-between mb-2">
             <h3 className="text-secondary">Detected Narratives</h3>
             <Network size={20} className="text-muted" />
           </div>
-          <h2>AI Phase Pending</h2>
+          <h2>Explore Intelligence</h2>
           <Link to="/narratives" className="text-accent-blue mt-2 inline-block">View Narratives &rarr;</Link>
         </div>
 
@@ -54,16 +45,14 @@ const Landing = () => {
             <h3 className="text-secondary">Active Sources</h3>
             <Hash size={20} className="text-muted" />
           </div>
-          <h2>{stats.sources || 'Scanning...'}</h2>
-          <Link to="/sources" className="text-accent-blue mt-2 inline-block">View Sources &rarr;</Link>
+          <h2>{stats.sources === 0 ? <span className="text-secondary text-lg">No sources available</span> : stats.sources}</h2>
         </div>
       </div>
       
       <div className="card">
         <h2>System Architecture</h2>
         <p className="text-secondary mt-2">
-          The Narrative Intelligence platform processes raw inputs from diverse sources (News, Reddit, YouTube) and standardizes them. 
-          In the upcoming AI integration phase, this data will pass through a 14-stage NLP pipeline to extract atomic claims, determine stances, and synthesize complex narratives via Large Language Models.
+          The Narrative Intelligence platform processes textual documents collected from multiple sources. Documents are cleaned, analyzed, enriched, grouped into related claims and narratives, and used to generate evidence-based intelligence and recommendations.
         </p>
       </div>
     </div>

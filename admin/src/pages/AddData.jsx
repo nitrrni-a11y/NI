@@ -26,7 +26,7 @@ const AddData = () => {
     setError('');
 
     try {
-      await axios.post('/api/news', formData, { withCredentials: true });
+      await axios.post('/api/documents', formData, { withCredentials: true });
       navigate('/data');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to add document');
@@ -37,7 +37,7 @@ const AddData = () => {
   return (
     <div style={{ maxWidth: '800px' }}>
       <div className="mb-6">
-        <h1>Add Intelligence Document</h1>
+        <h1>Add Document</h1>
         <p className="text-secondary mt-1">Manually ingest raw data into the pipeline.</p>
       </div>
 

@@ -18,11 +18,7 @@ const MainLayout = () => {
 
   const navItems = [
     { path: '/', label: 'Overview', icon: <LayoutDashboard size={18} /> },
-    { path: '/news', label: 'Intelligence Data', icon: <Database size={18} /> },
-    { path: '/sources', label: 'Sources', icon: <Hash size={18} /> },
-    { path: '/topics', label: 'Topics', icon: <MessageSquare size={18} /> },
     { path: '/narratives', label: 'Narratives', icon: <Network size={18} /> },
-    { path: '/search', label: 'Search', icon: <Search size={18} /> },
   ];
 
   return (

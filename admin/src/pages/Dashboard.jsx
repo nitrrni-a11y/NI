@@ -14,7 +14,7 @@ const Dashboard = () => {
     const fetchStats = async () => {
       try {
         const [docsRes, sourcesRes, procRes] = await Promise.all([
-          axios.get('/api/news', { withCredentials: true }),
+          axios.get('/api/documents', { withCredentials: true }),
           axios.get('/api/sources', { withCredentials: true }),
           axios.get('/api/processing/status', { withCredentials: true })
         ]);
@@ -56,7 +56,7 @@ const Dashboard = () => {
             <h3 className="text-secondary">Active Sources</h3>
             <Hash size={20} className="text-muted" />
           </div>
-          <h2>{stats.sources}</h2>
+          <h2>{stats.sources === 0 ? <span className="text-secondary text-lg">No sources</span> : stats.sources}</h2>
         </div>
 
         <div className="card">
@@ -65,21 +65,25 @@ const Dashboard = () => {
             <Cpu size={20} className="text-muted" />
           </div>
           <h2>
-            {stats.processing?.breakdown?.completed || 0} 
-            <span className="text-secondary text-sm ml-2 font-normal">/ {stats.documents} Processed</span>
+            {stats.documents === 0 ? (
+              <span className="text-secondary text-lg">No documents</span>
+            ) : (
+              <>
+                {stats.processing?.breakdown?.completed || 0} 
+                <span className="text-secondary text-sm ml-2 font-normal">/ {stats.documents} Processed</span>
+              </>
+            )}
           </h2>
         </div>
       </div>
 
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4 text-warning">
-          <AlertCircle size={20} />
-          <h3 className="text-warning m-0">AI Integration Pending</h3>
+      <div className="card border-l-4 border-green-500">
+        <div className="flex items-center gap-2 mb-4">
+          <Cpu size={20} className="text-green-600" />
+          <h3 className="text-green-600 m-0">AI Pipeline Active</h3>
         </div>
         <p className="text-secondary leading-relaxed">
-          The database and API routing architecture has been successfully overhauled to support the incoming Python AI service. 
-          Currently, the AI pipeline is structurally mapped but disabled to ensure system stability during this phase. 
-          All documents added will remain in the `not_processed` queue until integration is activated.
+          The Narrative Intelligence pipeline is fully integrated and operational. Documents are processed to extract claims, identify related narratives, analyze trends, and generate evidence-based intelligence.
         </p>
       </div>
     </div>

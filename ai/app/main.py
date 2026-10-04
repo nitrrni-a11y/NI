@@ -11,16 +11,12 @@ from app.pipeline.schemas import (
     BatchRequest,
     ProcessBatchResponse,
     ProcessCSVResponse,
-    BasicAnalysisRequest,
-    BasicAnalysisResponse,
 )
 
 from app.pipeline.pipeline import (
     process_document,
     process_batch,
 )
-
-from app.pipeline.basic_pipeline import process_basic_analysis
 
 
 app = FastAPI(
@@ -47,40 +43,6 @@ app.add_middleware(
 def health_check():
     return {"status": "ok"}
 
-
-# ============================================================
-# BASIC NLP PIPELINE
-# Stages:
-# 1. Text preprocessing
-# 2. Language detection
-# 3. Sentence segmentation
-# 4. Entity extraction
-# 5. Embeddings
-# 6. Topic extraction
-# ============================================================
-
-@app.post(
-    "/process/basic",
-    response_model=BasicAnalysisResponse
-)
-def process_basic_endpoint(request: BasicAnalysisRequest):
-
-    if not request.documents:
-        raise HTTPException(
-            status_code=400,
-            detail="No documents provided."
-        )
-
-    try:
-        result = process_basic_analysis(request)
-        return result
-
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
 
 
 # ============================================================
@@ -174,7 +136,7 @@ async def process_csv_endpoint(
 
         # Clean column names
         reader.fieldnames = [
-            str(field).strip()
+            str(field).strip().lower().lstrip('\ufeff')
             for field in reader.fieldnames
         ]
 
@@ -250,7 +212,7 @@ async def process_csv_endpoint(
 
                 collected_at=(
                     row.get("collected_at")
-                    or row.get("Timestamp")
+                    or row.get("timestamp")
                     or None
                 ),
             )

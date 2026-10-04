@@ -4,8 +4,9 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
-import newsRoutes from './routes/newsRoutes.js';
+import documentRoutes from './routes/documentRoutes.js';
 import aiDataRoutes from './routes/aiDataRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 dotenv.config();
 
@@ -39,9 +40,10 @@ app.use(express.json());
 app.use(cookieParser());
 
 app.use('/api/auth', authRoutes);
-app.use('/api/news', newsRoutes);
-app.use('/api/data', newsRoutes);
-app.use('/api', aiDataRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/data', documentRoutes); // Alias for documents
+app.use('/api/admin', adminRoutes);
+app.use('/api', aiDataRoutes); // Exposes /api/sources, /api/topics, etc.
 
 app.get('/', (req, res) => {
   res.send('API is running...');

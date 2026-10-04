@@ -1,6 +1,6 @@
-import Claim from '../models/Claim.js';
 import Narrative from '../models/Narrative.js';
-import News from '../models/News.js';
+import Document from '../models/Document.js';
+import ProcessingJob from '../models/ProcessingJob.js';
 
 // @desc    Get all unique sources
 // @route   GET /api/sources
@@ -8,7 +8,7 @@ import News from '../models/News.js';
 const getSources = async (req, res) => {
   try {
     // Aggregate distinct sources and count them
-    const sources = await News.aggregate([
+    const sources = await Document.aggregate([
       { $group: { _id: { source: "$source", sourceType: "$sourceType" }, count: { $sum: 1 }, latestCollected: { $max: "$collectedDate" } } },
       { $sort: { count: -1 } }
     ]);
@@ -28,64 +28,12 @@ const getSources = async (req, res) => {
   }
 };
 
-// @desc    Get all topics
-// @route   GET /api/topics
-// @access  Private
-const getTopics = async (req, res) => {
-  try {
-    // Unwind topics array and count occurrences
-    const topics = await News.aggregate([
-      { $unwind: "$topics" },
-      { $group: { _id: "$topics", count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-    
-    const formatted = topics.map(t => ({
-      topic: t._id,
-      count: t.count
-    }));
-
-    res.json(formatted);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error fetching topics' });
-  }
-};
-
-// @desc    Get claims (placeholder/future-ready)
-// @route   GET /api/claims
-// @access  Private
-const getClaims = async (req, res) => {
-  try {
-    const claims = await Claim.find({}).sort({ createdAt: -1 }).limit(50).populate('documentId', 'title source');
-    res.json(claims);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error fetching claims' });
-  }
-};
-
-// @desc    Get single claim
-// @route   GET /api/claims/:id
-// @access  Private
-const getClaimById = async (req, res) => {
-  try {
-    const claim = await Claim.findById(req.params.id).populate('documentId', 'title source rawText');
-    if (claim) {
-      res.json(claim);
-    } else {
-      res.status(404).json({ message: 'Claim not found' });
-    }
-  } catch (error) {
-    res.status(500).json({ message: 'Server error fetching claim' });
-  }
-};
-
 // @desc    Get narratives
 // @route   GET /api/narratives
 // @access  Private
 const getNarratives = async (req, res) => {
   try {
-    const narratives = await Narrative.find({}).sort({ score: -1, lastObservedAt: -1 }).limit(20);
+    const narratives = await Narrative.find({}).sort({ 'analysis.strength': -1, lastObservedAt: -1 }).limit(50);
     res.json(narratives);
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching narratives' });
@@ -113,7 +61,7 @@ const getNarrativeById = async (req, res) => {
 // @access  Private/Admin
 const getProcessingStatus = async (req, res) => {
   try {
-    const stats = await News.aggregate([
+    const stats = await Document.aggregate([
       { $group: { _id: "$processingStatus", count: { $sum: 1 } } }
     ]);
     
@@ -146,139 +94,275 @@ const getProcessingStatus = async (req, res) => {
   }
 };
 
-// @desc    Trigger AI processing batch for unprocessed documents
-// @route   POST /api/processing/run-batch
+// @desc    Get current active processing job status
+// @route   GET /api/processing/job-status
 // @access  Private/Admin
-const runBatchProcessing = async (req, res) => {
+const getJobStatus = async (req, res) => {
   try {
-    const batchSize = Number(req.query.batchSize) || 10;
-
-    // 1. Fetch unprocessed documents
-    const unprocessedDocs = await News.find({
-      processingStatus: { $in: ['not_processed', 'pending', 'failed'] }
-    }).limit(batchSize);
-
-    if (unprocessedDocs.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No pending documents found to process.',
-        documentsProcessed: 0
-      });
+    let jobs = await ProcessingJob.find().sort({ createdAt: -1 }).limit(10);
+    let currentJob = null;
+    
+    // Find the most recent job that still has documents in the database
+    for (const job of jobs) {
+      if (job.batchId) {
+        const docCount = await Document.countDocuments({ batchId: job.batchId });
+        if (docCount > 0) {
+          currentJob = job;
+          break;
+        }
+      }
     }
+    
+    if (!currentJob) {
+      // Return a dummy empty job if no valid batch exists
+      currentJob = { status: 'IDLE', totalDocuments: 0, processedDocuments: 0 };
+    }
+    res.json(currentJob);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error fetching job status' });
+  }
+};
 
-    const docIds = unprocessedDocs.map(d => d._id);
+// @desc    Stop processing job
+// @route   POST /api/processing/stop
+// @access  Private/Admin
+const stopProcessingJob = async (req, res) => {
+  try {
+    let job = await ProcessingJob.findOne().sort({ createdAt: -1 });
+    if (job && job.status === 'PROCESSING') {
+      job.stopRequested = true;
+      await job.save();
+    }
+    res.json({ success: true, message: 'Stop requested' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error stopping job' });
+  }
+};
 
-    // 2. Mark documents as 'processing'
-    await News.updateMany(
-      { _id: { $in: docIds } },
-      { $set: { processingStatus: 'processing', processingStartedAt: new Date() } }
-    );
+// Background worker
+const processDocumentsBackground = async (jobId) => {
+  try {
+    let job = await ProcessingJob.findById(jobId);
+    if (!job) return;
 
-    // 3. Format documents for AI service schema
-    const formattedDocs = unprocessedDocs.map(d => ({
-      document_id: d._id.toString(),
-      text: d.rawText || d.content,
-      source: d.source || 'Unknown',
-      source_type: d.sourceType || 'Unknown',
-      author: d.author || 'Unknown',
-      published_at: d.publicationDate ? d.publicationDate.toISOString() : null,
-      collected_at: d.collectedDate ? d.collectedDate.toISOString() : null
-    }));
+    const batchSize = 10;
+    
+    while (true) {
+      // Reload job to check for stop request
+      job = await ProcessingJob.findById(jobId);
+      if (job.stopRequested) {
+        job.status = 'STOPPED';
+        job.completedAt = new Date();
+        await job.save();
+        return;
+      }
+      
+      if (job.processedDocuments >= job.requestedDocuments) {
+        // We reached the limit for this run
+        job.status = 'COMPLETED'; // UI uses COMPLETED to show summary, then allows starting again
+        job.completedAt = new Date();
+        await job.save();
+        return;
+      }
 
-    // 4. Fetch existing narratives from DB for identity resolution
-    const existingNarrativesList = await Narrative.find({}, { narrativeId: 1, description: 1 });
-    const formattedExisting = existingNarrativesList.map(n => ({
-      narrative_id: n.narrativeId,
-      text: n.description
-    }));
+      const remainingToProcess = job.requestedDocuments - job.processedDocuments;
+      const currentBatchSize = Math.min(batchSize, remainingToProcess);
 
-    // 5. Call AI microservice
-    const aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:8000';
-    let aiResponse;
-    try {
-      const response = await axios.post(`${aiServiceUrl}/process/batch`, {
-        documents: formattedDocs,
-        existing_narratives: formattedExisting
-      }, { timeout: 120000 }); // 2 min timeout for AI calls
-      aiResponse = response.data;
-    } catch (aiErr) {
-      // Revert status to failed
-      await News.updateMany(
+      // Fetch unprocessed documents for this batch
+      const query = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
+      if (job.batchId) {
+        query.batchId = job.batchId;
+      }
+      
+      const unprocessedDocs = await Document.find(query).limit(currentBatchSize);
+
+      if (unprocessedDocs.length === 0) {
+        job.status = 'COMPLETED';
+        job.completedAt = new Date();
+        await job.save();
+        return;
+      }
+
+      const docIds = unprocessedDocs.map(d => d._id);
+      
+      // Mark as processing
+      await Document.updateMany(
+        { _id: { $in: docIds } },
+        { $set: { processingStatus: 'processing', processingStartedAt: new Date() } }
+      );
+
+      // Format for AI
+      const formattedDocs = unprocessedDocs.map(d => ({
+        document_id: d._id.toString(),
+        text: d.rawText,
+        source: d.source || 'Unknown',
+        source_type: d.sourceType || 'Unknown',
+        author: d.author || 'Unknown',
+        published_at: d.publicationDate ? d.publicationDate.toISOString() : null,
+        collected_at: d.collectedDate ? d.collectedDate.toISOString() : null
+      }));
+
+      // Fetch existing narratives
+      const existingNarrativesList = await Narrative.find({});
+      const formattedExisting = existingNarrativesList.map(n => ({
+        narrative_id: n.narrativeId,
+        text: n.description,
+        topic: n.topic || 'Unknown',
+        claim_count: n.analysis?.claim_count || 0,
+        source_count: n.analysis?.source_count || 0,
+        claim_ids: n.supportingEvidence?.claim_ids || [],
+        document_ids: n.supportingEvidence?.document_ids || [],
+        sources: n.supportingEvidence?.sources || [],
+        sentiment: n.analysis?.sentiment || 0.0
+      }));
+
+      let aiResponse;
+      try {
+        const aiService = (await import('../services/aiService.js')).default;
+        aiResponse = await aiService.processBatch(formattedDocs, formattedExisting);
+      } catch (aiErr) {
+        // AI Error
+        await Document.updateMany({ _id: { $in: docIds } }, { $set: { processingStatus: 'failed', processingError: aiErr.message } });
+        job.status = 'FAILED';
+        job.error = aiErr.message;
+        job.completedAt = new Date();
+        await job.save();
+        return;
+      }
+
+      // Save Narratives
+      let newCount = 0;
+      let updatedCount = 0;
+      let claimCount = 0;
+      
+      if (aiResponse.narratives && Array.isArray(aiResponse.narratives)) {
+        for (const nar of aiResponse.narratives) {
+          const existing = await Narrative.findOne({ narrativeId: nar.narrative_id });
+          if (existing) updatedCount++;
+          else newCount++;
+          
+          claimCount += nar.analysis?.claim_count || 0;
+
+          await Narrative.findOneAndUpdate(
+            { narrativeId: nar.narrative_id },
+            {
+              $set: {
+                narrativeId: nar.narrative_id,
+                topic: nar.topic || 'Unknown',
+                description: nar.narrative,
+                intelligence: nar.intelligence || '',
+                recommendation: nar.recommendation || '',
+                supportingEvidence: nar.supporting_evidence || {},
+                analysis: nar.analysis || {},
+                lastObservedAt: new Date(),
+              }
+            },
+            { upsert: true, new: true }
+          );
+        }
+      }
+
+      // Mark processed documents as completed
+      await Document.updateMany(
         { _id: { $in: docIds } },
         { 
           $set: { 
-            processingStatus: 'failed', 
-            processingError: aiErr.response?.data?.detail || aiErr.message 
+            processingStatus: 'completed', 
+            processingCompletedAt: new Date(),
+            processingError: ''
           } 
         }
       );
-      return res.status(502).json({
-        message: `AI Service connection error: ${aiErr.response?.data?.detail || aiErr.message}. Ensure Python FastAPI is running on port 8000.`,
-      });
+      
+      // Update Job Progress
+      job.processedDocuments += unprocessedDocs.length;
+      job.newNarrativesAdded += newCount;
+      job.existingNarrativesUpdated += updatedCount;
+      job.claimsExtracted += claimCount;
+      await job.save();
+    }
+  } catch (err) {
+    console.error('Background worker error:', err);
+    try {
+      let job = await ProcessingJob.findById(jobId);
+      if (job) {
+        job.status = 'FAILED';
+        job.error = err.message;
+        job.completedAt = new Date();
+        await job.save();
+      }
+    } catch(e){}
+  }
+};
+
+// @desc    Start AI processing job
+// @route   POST /api/processing/start
+// @access  Private/Admin
+const startProcessingJob = async (req, res) => {
+  try {
+    const { batchId, limit } = req.body;
+    let limitNum = Number(limit);
+    if (!limitNum || limitNum <= 0) {
+      return res.status(400).json({ message: 'Valid processing limit is required.' });
     }
 
-    // 6. Save or update Narratives
-    if (aiResponse.narratives && Array.isArray(aiResponse.narratives)) {
-      for (const nar of aiResponse.narratives) {
-        await Narrative.findOneAndUpdate(
-          { narrativeId: nar.narrative_id },
-          {
-            $set: {
-              narrativeId: nar.narrative_id,
-              description: nar.narrative,
-              intelligence: nar.intelligence || '',
-              recommendation: nar.recommendation || '',
-              supportingEvidence: nar.supporting_evidence || {},
-              analysis: nar.analysis || {},
-              score: nar.analysis?.strength || 0,
-              scoreComponents: nar.analysis || {},
-              trend: nar.analysis?.recurrence === 'high' ? 'increasing' : 'stable',
-              trendStrength: nar.analysis?.strength || 0,
-              lastObservedAt: new Date(),
-            },
-            $addToSet: {
-              claimIds: { $each: nar.supporting_evidence?.claim_ids || [] }
-            }
-          },
-          { upsert: true, new: true }
-        );
-      }
+    let job;
+    if (batchId) {
+      job = await ProcessingJob.findOne({ batchId: batchId }).sort({ createdAt: -1 });
+    } else {
+      job = await ProcessingJob.findOne().sort({ createdAt: -1 });
     }
 
-    // 7. Mark processed documents as completed
-    await News.updateMany(
-      { _id: { $in: docIds } },
-      { 
-        $set: { 
-          processingStatus: 'completed', 
-          processingCompletedAt: new Date(),
-          processingError: ''
-        } 
-      }
-    );
+    if (!job || job.status === 'IDLE') {
+      return res.status(400).json({ message: 'No valid batch found to process.' });
+    }
+
+    if (job.status === 'PROCESSING') {
+      return res.status(400).json({ message: 'A processing job is already running.' });
+    }
+
+    const query = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
+    if (job.batchId) query.batchId = job.batchId;
+    
+    const unprocessedCount = await Document.countDocuments(query);
+    if (unprocessedCount === 0) {
+      return res.status(400).json({ message: 'No pending documents found to process in this batch.' });
+    }
+    
+    if (limitNum > unprocessedCount) {
+      limitNum = unprocessedCount;
+    }
+
+    // Update job to PROCESSING with new target
+    job.status = 'PROCESSING';
+    job.requestedDocuments = job.processedDocuments + limitNum;
+    job.stopRequested = false;
+    job.startedAt = new Date();
+    job.error = null;
+    await job.save();
+
+    // Start background worker
+    processDocumentsBackground(job._id);
 
     res.json({
       success: true,
-      message: `Successfully processed ${unprocessedDocs.length} documents!`,
-      documentsProcessed: unprocessedDocs.length,
-      narrativesCount: aiResponse.narratives?.length || 0,
-      data: aiResponse
+      message: `Processing started for ${limitNum} documents.`,
+      job
     });
 
   } catch (error) {
-    console.error('Batch processing error:', error);
-    res.status(500).json({ message: 'Internal server error during batch processing' });
+    console.error('Start processing error:', error);
+    res.status(500).json({ message: 'Internal server error starting job' });
   }
 };
 
 export {
   getSources,
-  getTopics,
-  getClaims,
-  getClaimById,
   getNarratives,
   getNarrativeById,
   getProcessingStatus,
-  runBatchProcessing
+  getJobStatus,
+  startProcessingJob,
+  stopProcessingJob
 };
-

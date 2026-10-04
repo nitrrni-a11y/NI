@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Search as SearchIcon, Database } from 'lucide-react';
+import { Search as SearchIcon, AlertCircle, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const Search = () => {
@@ -8,19 +8,36 @@ const Search = () => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [allNarratives, setAllNarratives] = useState([]);
 
-  const handleSearch = async (e) => {
+  useEffect(() => {
+    // Fetch all narratives once
+    const fetchNarratives = async () => {
+      try {
+        const { data } = await axios.get('/api/narratives', { withCredentials: true });
+        setAllNarratives(data);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchNarratives();
+  }, []);
+
+  const handleSearch = (e) => {
     e.preventDefault();
     if (!query.trim()) return;
     
     setLoading(true);
     setHasSearched(true);
-    try {
-      const { data } = await axios.get(`/api/news?keyword=${encodeURIComponent(query)}`, { withCredentials: true });
-      setResults(data.documents || data);
-    } catch (err) {
-      console.error(err);
-    }
+    
+    const searchLower = query.toLowerCase();
+    const filtered = allNarratives.filter(n => {
+      const topicMatch = n.topic ? n.topic.toLowerCase().includes(searchLower) : false;
+      const descMatch = n.description ? n.description.toLowerCase().includes(searchLower) : false;
+      return topicMatch || descMatch;
+    });
+    
+    setResults(filtered);
     setLoading(false);
   };
 
@@ -28,7 +45,7 @@ const Search = () => {
     <div>
       <div className="mb-6">
         <h1>Global Search</h1>
-        <p className="text-secondary mt-1">Search through intelligence documents, sources, and narratives.</p>
+        <p className="text-secondary mt-1">Search through intelligence narratives and topics.</p>
       </div>
 
       <form onSubmit={handleSearch} className="mb-6 flex gap-2">
@@ -36,7 +53,7 @@ const Search = () => {
           <SearchIcon size={18} className="text-muted" />
           <input 
             type="text" 
-            placeholder="Enter keywords..." 
+            placeholder="Search for 'hostel', 'academics'..." 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{ background: 'transparent', border: 'none', color: 'inherit', outline: 'none', width: '100%' }} 
@@ -56,21 +73,19 @@ const Search = () => {
 
       {results.length > 0 && (
         <div>
-          <h3 className="mb-3 text-secondary">Found {results.length} intelligence records</h3>
+          <h3 className="mb-3 text-secondary">Found {results.length} narrative(s)</h3>
           <div className="grid gap-3">
-            {results.map((doc) => (
-              <div key={doc._id} className="card">
-                <Link to={`/news/${doc._id}`}>
+            {results.map((n) => (
+              <div key={n._id} className="card hover:border-accent-blue transition-colors">
+                <div className="mb-1"><span className="badge badge-outline">{n.topic?.toUpperCase() || 'GENERAL'}</span></div>
+                <Link to={`/narratives/${n._id}`}>
                   <h3 style={{ color: 'var(--text-primary)' }}>
-                    {doc.title && doc.title !== 'Untitled' ? doc.title : 'Raw Document'}
+                    {n.description}
                   </h3>
                 </Link>
-                <p className="text-secondary text-sm mt-2 mb-2 line-clamp-2">
-                  {doc.rawText?.substring(0, 150)}...
-                </p>
-                <div className="flex gap-2 mt-2 text-xs">
-                  <span className="badge badge-outline">{doc.source}</span>
-                  <span className="text-muted">{new Date(doc.collectedDate).toLocaleDateString()}</span>
+                <div className="flex gap-4 mt-3 text-xs text-secondary border-t pt-2" style={{ borderColor: 'var(--border-subtle)' }}>
+                  <span className="flex items-center gap-1"><AlertCircle size={14} /> Score: {n.score}</span>
+                  <span className="flex items-center gap-1"><TrendingUp size={14} /> Trend: {n.trend}</span>
                 </div>
               </div>
             ))}

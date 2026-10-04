@@ -14,7 +14,7 @@ const Register = () => {
 
   useEffect(() => {
     if (user) {
-      navigate('/news');
+      navigate('/');
     }
   }, [user, navigate]);
 

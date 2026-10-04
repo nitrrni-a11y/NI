@@ -12,7 +12,7 @@ const Login = () => {
 
   useEffect(() => {
     if (user) {
-      navigate('/news');
+      navigate('/');
     }
   }, [user, navigate]);
 

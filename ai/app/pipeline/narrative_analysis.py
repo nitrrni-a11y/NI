@@ -74,43 +74,39 @@ def score_narrative(claim_count: int, unique_sources: int, avg_conf: float) -> f
     final_score = (w_vol * vol_score) + (w_div * div_score) + (w_qual * qual_score)
     return max(0.0, min(final_score, 1.0))
 
-def analyze_narratives(narratives: List[Narrative], all_claims: List[EnrichedClaim]) -> List[Tuple[Narrative, NarrativeEvidence, NarrativeAnalysis]]:
-    claim_map = {c.claim_id: c for c in all_claims}
-    analyzed = []
-
-    for narrative in narratives:
-        supporting_claims = [claim_map[cid] for cid in narrative.claim_ids if cid in claim_map]
+def analyze_claim_group(supporting_claims: List[EnrichedClaim]) -> Tuple[NarrativeEvidence, NarrativeAnalysis]:
+    sources = analyze_cross_source(supporting_claims)
+    trend_str, trend_data = analyze_narrative_trend(supporting_claims)
+    
+    avg_sentiment = 0.0
+    if supporting_claims:
+        avg_sentiment = sum(
+            c.sentiment_confidence if c.sentiment == "positive" else (-c.sentiment_confidence if c.sentiment == "negative" else 0.0)
+            for c in supporting_claims
+        ) / len(supporting_claims)
         
-        sources = analyze_cross_source(supporting_claims)
-        trend_str, trend_data = analyze_narrative_trend(supporting_claims)
-        
-        avg_sentiment = 0.0
-        if supporting_claims:
-            avg_sentiment = sum(c.sentiment_confidence if c.sentiment == "positive" else (-c.sentiment_confidence if c.sentiment == "negative" else 0.0) for c in supporting_claims) / len(supporting_claims)
-            
-        strength = score_narrative(
-            claim_count=len(supporting_claims),
-            unique_sources=len(sources),
-            avg_conf=abs(avg_sentiment)
-        )
-        
-        document_ids = list(set([c.document_id for c in supporting_claims]))
+    strength = score_narrative(
+        claim_count=len(supporting_claims),
+        unique_sources=len(sources),
+        avg_conf=abs(avg_sentiment)
+    )
+    
+    document_ids = list(set([c.document_id for c in supporting_claims]))
+    claim_ids = list(set([c.claim_id for c in supporting_claims]))
 
-        evidence = NarrativeEvidence(
-            claim_ids=narrative.claim_ids,
-            document_ids=document_ids,
-            sources=sources
-        )
-        
-        analysis = NarrativeAnalysis(
-            claim_count=len(supporting_claims),
-            source_count=len(sources),
-            sentiment=round(avg_sentiment, 4),
-            temporal_information=trend_data,
-            recurrence=trend_str,
-            strength=round(strength, 4)
-        )
+    evidence = NarrativeEvidence(
+        claim_ids=claim_ids,
+        document_ids=document_ids,
+        sources=sources
+    )
+    
+    analysis = NarrativeAnalysis(
+        claim_count=len(supporting_claims),
+        source_count=len(sources),
+        sentiment=round(avg_sentiment, 4),
+        temporal_information=trend_data,
+        recurrence=trend_str,
+        strength=round(strength, 4)
+    )
 
-        analyzed.append((narrative, evidence, analysis))
-
-    return analyzed
+    return evidence, analysis

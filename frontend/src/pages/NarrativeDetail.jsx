@@ -62,8 +62,9 @@ const NarrativeDetail = () => {
             <PieChart size={18} />
             <h3>Stance & Sentiment</h3>
           </div>
-          <div className="text-secondary text-center p-4 border border-dashed border-gray-700 rounded">
-            Analysis processing pending...
+          <div className="text-secondary p-4">
+            <p><strong>Average Sentiment:</strong> {narrative.analysis?.sentiment !== undefined ? narrative.analysis.sentiment.toFixed(4) : 'N/A'}</p>
+            <p><strong>Strength Score:</strong> {narrative.analysis?.strength !== undefined ? narrative.analysis.strength.toFixed(4) : 'N/A'}</p>
           </div>
         </div>
 
@@ -72,18 +73,25 @@ const NarrativeDetail = () => {
             <Activity size={18} />
             <h3>Cross-Source Presence</h3>
           </div>
-          <div className="text-secondary text-center p-4 border border-dashed border-gray-700 rounded">
-            Cross-source correlation pending...
+          <div className="text-secondary p-4">
+            <p><strong>Unique Sources:</strong> {narrative.analysis?.source_count || 0}</p>
+            <p className="mt-2"><strong>Sources:</strong></p>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {(narrative.supportingEvidence?.sources || []).map((src, i) => (
+                <span key={i} className="badge badge-outline">{src}</span>
+              ))}
+            </div>
           </div>
         </div>
 
         <div className="card col-span-2">
           <div className="card-header flex items-center gap-2">
             <FileText size={18} />
-            <h3>Supporting Evidence (Claims)</h3>
+            <h3>Supporting Evidence Overview</h3>
           </div>
-          <div className="text-secondary text-center p-4 border border-dashed border-gray-700 rounded">
-            Claims database linkage pending...
+          <div className="text-secondary p-4">
+            <p><strong>Total Supporting Claims:</strong> {narrative.analysis?.claim_count || 0}</p>
+            <p><strong>Related Documents:</strong> {(narrative.supportingEvidence?.document_ids || []).length}</p>
           </div>
         </div>
       </div>
