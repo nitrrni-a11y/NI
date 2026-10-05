@@ -31,6 +31,11 @@ const Narratives = () => {
   if (loading) return <div className="p-4">Loading narratives...</div>;
 
   const filteredNarratives = narratives.filter(n => {
+    // Hide low-evidence narratives from UI
+    if (!n.analysis || !n.analysis.claim_count || n.analysis.claim_count <= 1) {
+      return false;
+    }
+
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
