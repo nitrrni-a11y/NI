@@ -1,10 +1,12 @@
 import { useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
+import { useEntity } from '../context/entityContext';
 import { Search, User, LogOut } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout } = useContext(AuthContext);
+  const { entities, selectedEntity, changeEntity, loading } = useEntity();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -21,9 +23,30 @@ const Navbar = () => {
             Narrative Intelligence
           </Link>
           
-          {user && (
-            <div className="flex gap-4">
+          {user && !loading && selectedEntity && (
+            <div className="flex gap-4 items-center">
               <Link to="/narratives" className="nav-link" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Narratives</Link>
+              <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border)' }}></div>
+              <select
+                value={selectedEntity.entityId}
+                onChange={(e) => changeEntity(e.target.value)}
+                style={{
+                  padding: '0.25rem 0.5rem',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-primary)',
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                {entities.map((a) => (
+                  <option key={a.entityId} value={a.entityId}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
         </div>

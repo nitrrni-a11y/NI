@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useEntity } from '../context/EntityContext';
 import {
   LayoutDashboard,
   Network,
@@ -18,6 +19,7 @@ const getInitialTheme = () => {
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
+  const { entities, selectedEntity, changeEntity, loading } = useEntity();
   const location = useLocation();
   const [theme, setTheme] = useState(getInitialTheme);
 
@@ -58,33 +60,45 @@ const MainLayout = () => {
 
       <main className="main-content">
         <header className="top-header">
-          <div className="flex items-center gap-3">
-            <button
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-label="Toggle dark mode"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
-            </button>
-
-            {user ? (
-              <>
-                <Link to="/profile" className="flex items-center gap-2 text-secondary">
-                  <User size={18} />
-                  <span>{user.name}</span>
+          <div className="flex items-center gap-3 w-full justify-between">
+            {selectedEntity && !loading && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  {selectedEntity.domain} / <span style={{ color: 'var(--text-color)', fontWeight: 600 }}>{selectedEntity.name}</span>
+                </span>
+                <Link to="/" style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--primary-color)', textDecoration: 'underline' }}>
+                  [Change Entity]
                 </Link>
-                <button onClick={logout} className="btn btn-secondary ml-2 flex items-center gap-2">
-                  <LogOut size={16} />
-                  <span>Logout</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <Link to="/login" className="btn btn-secondary">Login</Link>
-                <Link to="/register" className="btn btn-primary ml-2">Register</Link>
-              </>
+              </div>
             )}
+            <div className="flex items-center gap-3 ml-auto">
+              <button
+                className="theme-toggle"
+                onClick={toggleTheme}
+                aria-label="Toggle dark mode"
+                title="Toggle theme"
+              >
+                {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
+              </button>
+
+              {user ? (
+                <>
+                  <Link to="/profile" className="flex items-center gap-2 text-secondary">
+                    <User size={18} />
+                    <span>{user.name}</span>
+                  </Link>
+                  <button onClick={logout} className="btn btn-secondary ml-2 flex items-center gap-2">
+                    <LogOut size={16} />
+                    <span>Logout</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" className="btn btn-secondary">Login</Link>
+                  <Link to="/register" className="btn btn-primary ml-2">Register</Link>
+                </>
+              )}
+            </div>
           </div>
         </header>
 

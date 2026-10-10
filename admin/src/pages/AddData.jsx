@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { useEntity } from '../context/EntityContext';
 
 const AddData = () => {
   const navigate = useNavigate();
+  const { selectedEntity } = useEntity();
   const [formData, setFormData] = useState({
     title: '',
     rawText: '',
@@ -26,8 +28,8 @@ const AddData = () => {
     setError('');
 
     try {
-      await axios.post('/api/documents', formData, { withCredentials: true });
-      navigate('/data');
+      await axios.post('/api/documents', { ...formData, entity_id: selectedEntity?.entityId }, { withCredentials: true });
+      navigate(`/entity/${selectedEntity?.entityId}/data`);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to add document');
       setLoading(false);
@@ -36,9 +38,9 @@ const AddData = () => {
 
   return (
     <div className="add-data-page">
-      <div className="add-data-heading">
-        <h1>Add Document</h1>
-        <p className="text-secondary">Manually ingest raw data into the pipeline.</p>
+      <div className="flex flex-col mb-12">
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Add Document</h1>
+        <p className="text-secondary" style={{ fontSize: '1.1rem' }}>Manually ingest raw data into the pipeline.</p>
       </div>
 
       <div className="card add-data-card">
@@ -130,7 +132,7 @@ const AddData = () => {
           </div>
 
           <div className="flex justify-end gap-3 mt-6 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate('/data')}>Cancel</button>
+            <button type="button" className="btn btn-secondary" onClick={() => navigate(`/entity/${selectedEntity?.entityId}/data`)}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Ingesting...' : 'Add to Database'}
             </button>

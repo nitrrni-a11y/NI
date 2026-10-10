@@ -6,7 +6,7 @@ import ProcessingJob from '../models/ProcessingJob.js';
 // @access  Private (User/Admin)
 const getDocuments = async (req, res) => {
   try {
-    const { keyword, source, sourceType, status, pageNumber, limit: reqLimit } = req.query;
+    const { keyword, source, sourceType, status, pageNumber, limit: reqLimit, entity_id } = req.query;
     
     // Pagination defaults
     const page = Number(pageNumber) || 1;
@@ -15,6 +15,9 @@ const getDocuments = async (req, res) => {
     
     // Build query
     const query = {};
+    if (entity_id) {
+      query.entityId = entity_id;
+    }
     
     if (keyword) {
       query.$or = [
@@ -109,6 +112,11 @@ const uploadCsv = async (req, res) => {
       return res.status(400).json({ message: 'No CSV file uploaded' });
     }
 
+    const { entity_id } = req.body;
+    if (!entity_id) {
+      return res.status(400).json({ message: 'entity_id is required' });
+    }
+
     const aiService = (await import('../services/aiService.js')).default;
     
     // 1. Send file buffer to AI service to parse
@@ -144,7 +152,8 @@ const uploadCsv = async (req, res) => {
         publicationDate: parseDate(doc.published_at),
         collectedDate: parseDate(doc.collected_at) || Date.now(),
         processingStatus: 'not_processed',
-        batchId: batchId
+        batchId: batchId,
+        entityId: entity_id
       });
       await document.save();
       savedCount++;
@@ -153,6 +162,7 @@ const uploadCsv = async (req, res) => {
     if (savedCount > 0) {
       await ProcessingJob.create({
         batchId: batchId,
+        entityId: entity_id,
         status: 'READY',
         totalDocuments: savedCount,
         processedDocuments: 0,

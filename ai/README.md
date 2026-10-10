@@ -106,3 +106,7 @@ GEMINI_API_KEY=your-key-here
 5. Click **Choose File** and select your local CSV dataset.
 6. Click **Execute**.
 7. Inspect the structured JSON response detailing how the CSV was batched and resolved.
+
+.\venv\Scripts\Activate.ps1        
+pip install -r requirements.txt  
+python -m uvicorn app.main:app --reload --port 8000

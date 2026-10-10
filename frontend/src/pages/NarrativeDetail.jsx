@@ -29,16 +29,16 @@ const NarrativeDetail = () => {
 
   return (
     <div>
-      <Link to="/narratives" className="text-secondary flex items-center gap-2 mb-4">
-        <ArrowLeft size={16} /> Back to Narratives
-      </Link>
-
-      <div className="mb-6">
-        <h1 className="mb-2">{narrative.description}</h1>
-        <div className="flex items-center gap-3 text-secondary">
-          <span className="badge badge-outline">ID: {narrative.narrativeId}</span>
-          <span>Score: {narrative.score}</span>
-          <span>Trend: {narrative.trend}</span>
+      <div className="flex flex-col mb-12">
+        <div>
+          <Link to="/narratives" className="btn btn-ghost flex items-center text-secondary hover:text-primary mb-6 p-0 shadow-none border-none bg-transparent" style={{ textDecoration: 'none', width: 'fit-content' }}>
+            <ArrowLeft size={16} className="mr-1" /> Back to Narratives
+          </Link>
+        </div>
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', lineHeight: '1.2' }}>{narrative.description}</h1>
+        <div className="flex items-center gap-3">
+          <span className="badge badge-outline border border-gray-300 px-3 py-1 text-sm rounded bg-gray-50">{narrative.topic || narrative.narrativeId}</span>
+          <span className="text-secondary text-sm font-medium flex items-center gap-1"><Activity size={14} /> Trend: {narrative.trend}</span>
         </div>
       </div>
 
@@ -56,22 +56,12 @@ const NarrativeDetail = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="card">
-          <div className="card-header flex items-center gap-2">
-            <PieChart size={18} />
-            <h3>Stance & Sentiment</h3>
-          </div>
-          <div className="text-secondary p-4">
-            <p><strong>Average Sentiment:</strong> {narrative.analysis?.sentiment !== undefined ? narrative.analysis.sentiment.toFixed(4) : 'N/A'}</p>
-            <p><strong>Strength Score:</strong> {narrative.analysis?.strength !== undefined ? narrative.analysis.strength.toFixed(4) : 'N/A'}</p>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-        <div className="card">
-          <div className="card-header flex items-center gap-2">
-            <Activity size={18} />
-            <h3>Cross-Source Presence</h3>
+        <div className="card flex flex-col justify-between">
+          <div className="card-header flex items-center gap-2 mb-4 border-b pb-2">
+            <Network size={18} className="text-primary-color" />
+            <h3 className="m-0 text-lg">Cross-Source Presence</h3>
           </div>
           <div className="text-secondary p-4">
             <p><strong>Unique Sources:</strong> {narrative.analysis?.source_count || 0}</p>
@@ -84,14 +74,14 @@ const NarrativeDetail = () => {
           </div>
         </div>
 
-        <div className="card col-span-2">
-          <div className="card-header flex items-center gap-2">
-            <FileText size={18} />
-            <h3>Supporting Evidence Overview</h3>
+        <div className="card flex flex-col justify-between">
+          <div className="card-header flex items-center gap-2 mb-4 border-b pb-2">
+            <FileText size={18} className="text-primary-color" />
+            <h3 className="m-0 text-lg">Supporting Evidence</h3>
           </div>
-          <div className="text-secondary p-4">
-            <p><strong>Total Supporting Claims:</strong> {narrative.analysis?.claim_count || 0}</p>
-            <p><strong>Related Documents:</strong> {(narrative.supportingEvidence?.document_ids || []).length}</p>
+          <div className="text-secondary p-2 flex-1">
+            <p className="mb-3"><strong className="text-primary">Total Supporting Claims:</strong> <span className="text-lg">{narrative.analysis?.claim_count || 0}</span></p>
+            <p><strong className="text-primary">Related Documents:</strong> <span className="text-lg">{(narrative.supportingEvidence?.document_ids || []).length}</span></p>
           </div>
         </div>
       </div>

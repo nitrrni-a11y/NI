@@ -7,7 +7,8 @@ from app.pipeline.schemas import (
     ProcessBatchResponse,
     ExistingNarrative,
     FinalNarrative,
-    EnrichedClaim
+    EnrichedClaim,
+    ExistingTopic
 )
 
 from app.pipeline.text_preprocessing import preprocess_document
@@ -20,6 +21,7 @@ from app.pipeline.narrative_intelligence import (
     resolve_identity,
     update_matched_narrative
 )
+from app.pipeline.topic_assignment import assign_topic
 
 def process_document(raw_doc: RawDocument) -> ProcessDocumentResponse:
     preprocessed_doc = preprocess_document(raw_doc)
@@ -51,6 +53,9 @@ def process_batch(batch_req: BatchRequest) -> ProcessBatchResponse:
     
     final_narratives: List[FinalNarrative] = []
     
+    # 1. Fetch existing topics once per batch (create a mutable working copy)
+    working_topics = list(batch_req.existing_topics)
+    
     # 3. Analyze and Generate Narratives
     for group in claim_groups:
         group_claims_list = [claim_map[cid] for cid in group.claim_ids if cid in claim_map]
@@ -60,8 +65,30 @@ def process_batch(batch_req: BatchRequest) -> ProcessBatchResponse:
         # Group-level deterministic analysis BEFORE narrative generation
         evidence, analysis = analyze_claim_group(group_claims_list)
         
-        # ONE LLM CALL for the new group
-        candidate_narrative = generate_new_narrative(group, evidence, analysis)
+        # ONE LLM CALL for the new group (Narrative generation)
+        candidate_narrative = generate_new_narrative(
+            group, 
+            evidence, 
+            analysis, 
+            batch_req.analysis_context
+        )
+        
+        # Topic assignment via Gemma
+        topic_id, topic_name, is_new = assign_topic(
+            candidate_narrative.narrative, 
+            working_topics, 
+            batch_req.analysis_context
+        )
+        
+        candidate_narrative.topic_id = topic_id
+        candidate_narrative.topic = topic_name
+        candidate_narrative.is_new_topic = is_new
+        
+        # Dynamically update topics list
+        if is_new:
+            # check if it really isn't in working_topics to avoid duplicates
+            if not any(t.topic_id == topic_id or t.name == topic_name for t in working_topics):
+                working_topics.append(ExistingTopic(topic_id=topic_id, name=topic_name))
         
         # Resolve Identity
         matched_id = resolve_identity(candidate_narrative.narrative, batch_req.existing_narratives)
@@ -83,7 +110,8 @@ def process_batch(batch_req: BatchRequest) -> ProcessBatchResponse:
                     existing=matched_existing,
                     new_group_claims=group_claims_list,
                     new_evidence=evidence,
-                    new_analysis=analysis
+                    new_analysis=analysis,
+                    analysis_context=batch_req.analysis_context
                 )
                 final_narratives.append(updated_narrative)
             else:

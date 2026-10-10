@@ -84,12 +84,24 @@ class NarrativeAnalysis(BaseModel):
 
 class FinalNarrative(BaseModel):
     narrative_id: str
+    topic_id: str = Field(default="")
     topic: str
     narrative: str
     supporting_evidence: NarrativeEvidence
     analysis: NarrativeAnalysis
     intelligence: str
     recommendation: str
+    is_new_topic: bool = False
+
+class ExistingTopic(BaseModel):
+    topic_id: str
+    name: str
+
+class EntityContext(BaseModel):
+    entity_id: str
+    entity_name: str
+    entity_type: str
+    domain: str
 
 # ============================================================
 # ENDPOINTS
@@ -102,6 +114,8 @@ class ProcessDocumentResponse(BaseModel):
 class BatchRequest(BaseModel):
     documents: List[RawDocument]
     existing_narratives: List[ExistingNarrative] = Field(default_factory=list)
+    analysis_context: EntityContext
+    existing_topics: List[ExistingTopic] = Field(default_factory=list)
 
 class ProcessBatchResponse(BaseModel):
     documents_processed: int
@@ -113,3 +127,4 @@ class ProcessCSVResponse(BaseModel):
     filename: str
     total_rows: int
     documents: List[RawDocument]
+

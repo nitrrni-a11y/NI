@@ -2,6 +2,11 @@ import mongoose from 'mongoose';
 
 const documentSchema = new mongoose.Schema(
   {
+    entityId: {
+      type: String,
+      required: true,
+      index: true
+    },
     title: {
       type: String,
       default: '',

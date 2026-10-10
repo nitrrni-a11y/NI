@@ -7,6 +7,11 @@ const narrativeSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    entityId: {
+      type: String,
+      required: true,
+      index: true
+    },
     topic: {
       type: String,
       default: 'Unknown',

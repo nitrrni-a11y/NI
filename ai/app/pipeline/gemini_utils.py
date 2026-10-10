@@ -54,7 +54,9 @@ def generate_with_retry(
 
             is_503 = (
                 "503" in error_text or
-                "UNAVAILABLE" in error_text
+                "UNAVAILABLE" in error_text or
+                "500" in error_text or
+                "INTERNAL" in error_text
             )
 
             is_429 = (
