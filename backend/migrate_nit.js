@@ -1,7 +1,7 @@
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
-import Analysis from './models/Analysis.js';
+import connectDB from './config/db.js';
+import Entity from './models/Entity.js';
 import Document from './models/Document.js';
 import Narrative from './models/Narrative.js';
 import ProcessingJob from './models/ProcessingJob.js';
@@ -12,28 +12,27 @@ dotenv.config();
 const migrate = async () => {
   try {
     console.log('Connecting to MongoDB...');
-    await mongoose.connect(process.env.MONGODB_URI);
+    await connectDB();
     console.log('Connected.');
 
-    // 1. Check if NIT Raipur analysis already exists
-    let analysis = await Analysis.findOne({ name: 'NIT Raipur' });
-    if (!analysis) {
-      console.log('Creating default NIT Raipur analysis...');
-      analysis = new Analysis({
-        entityId: `ANA_${uuidv4().replace(/-/g, '').substring(0, 8)}`,
+    // 1. Check if NIT Raipur entity already exists
+    let entity = await Entity.findOne({ name: 'NIT Raipur' });
+    if (!entity) {
+      console.log('Creating default NIT Raipur entity...');
+      entity = new Entity({
+        entityId: `ENT_${uuidv4().replace(/-/g, '').substring(0, 8)}`,
         name: 'NIT Raipur',
-        entityName: 'NIT Raipur',
         entityType: 'Institution',
         domain: 'Education',
-        description: 'Default analysis created from legacy data.'
+        description: 'Default entity created from legacy data.'
       });
-      await analysis.save();
-      console.log('Created Analysis:', analysis.entityId);
+      await entity.save();
+      console.log('Created Entity:', entity.entityId);
     } else {
-      console.log('Found existing Analysis:', analysis.entityId);
+      console.log('Found existing Entity:', entity.entityId);
     }
 
-    const aId = analysis.entityId;
+    const aId = entity.entityId;
 
     // 2. Update Documents
     console.log('Updating Documents...');

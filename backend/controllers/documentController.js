@@ -71,10 +71,16 @@ const getDocumentById = async (req, res) => {
 const addDocument = async (req, res) => {
   const { 
     title, rawText, source, sourceType, url, 
-    author, publicationDate, collectedDate 
+    author, publicationDate, collectedDate,
+    entity_id, entityId
   } = req.body;
 
   try {
+    const targetEntityId = entityId || entity_id;
+    if (!targetEntityId) {
+      return res.status(400).json({ message: 'Entity ID is required' });
+    }
+
     // Basic validation
     if (!rawText) {
       return res.status(400).json({ message: 'Raw text is required' });
@@ -84,6 +90,7 @@ const addDocument = async (req, res) => {
     }
 
     const document = new Document({
+      entityId: targetEntityId,
       title: title || 'Untitled',
       rawText,
       source,
@@ -99,7 +106,7 @@ const addDocument = async (req, res) => {
     res.status(201).json(createdDocument);
   } catch (error) {
     console.error(error);
-    res.status(400).json({ message: 'Invalid data provided for document creation' });
+    res.status(400).json({ message: error.message || 'Invalid data provided for document creation' });
   }
 };
 

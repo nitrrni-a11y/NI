@@ -1,6 +1,10 @@
+import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import Domain from './models/Domain.js';
 import Entity from './models/Entity.js';
+import User from './models/User.js';
+
+dotenv.config();
 
 const domainsToSeed = [
   "Education",
@@ -53,6 +57,24 @@ const seedData = async () => {
       );
     }
     console.log('Entities seeded');
+
+    // Seed Admin User
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || '12345678';
+    const adminName = process.env.ADMIN_NAME || 'System Admin';
+
+    const existingAdmin = await User.findOne({ email: adminEmail });
+    if (!existingAdmin) {
+      await User.create({
+        name: adminName,
+        email: adminEmail,
+        password: adminPassword,
+        role: 'admin',
+      });
+      console.log(`Admin user created: ${adminEmail}`);
+    } else {
+      console.log(`Admin user already exists: ${adminEmail}`);
+    }
 
     console.log('Data seeding complete!');
     process.exit(0);
