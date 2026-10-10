@@ -1,14 +1,20 @@
 import Narrative from '../models/Narrative.js';
 import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
+import Entity from '../models/Entity.js';
+import Topic from '../models/Topic.js';
 
 // @desc    Get all unique sources
 // @route   GET /api/sources
 // @access  Private
 const getSources = async (req, res) => {
   try {
+    const { entity_id } = req.query;
+    const matchStage = entity_id ? { $match: { entityId: entity_id } } : { $match: {} };
+
     // Aggregate distinct sources and count them
     const sources = await Document.aggregate([
+      matchStage,
       { $group: { _id: { source: "$source", sourceType: "$sourceType" }, count: { $sum: 1 }, latestCollected: { $max: "$collectedDate" } } },
       { $sort: { count: -1 } }
     ]);
@@ -34,8 +40,14 @@ const getSources = async (req, res) => {
 const getNarratives = async (req, res) => {
   try {
 
-    const allNarratives = await Narrative.find({});
-    const narratives = await Narrative.find({})
+    const { entity_id } = req.query;
+    const query = {};
+    if (entity_id) {
+      query.entityId = entity_id;
+    }
+    
+    const allNarratives = await Narrative.find(query);
+    const narratives = await Narrative.find(query)
       .sort({ 'analysis.strength': -1, lastObservedAt: -1 })
       .limit(50);
     res.json(narratives);
@@ -68,7 +80,11 @@ const getNarrativeById = async (req, res) => {
 // @access  Private/Admin
 const getProcessingStatus = async (req, res) => {
   try {
+    const { entity_id } = req.query;
+    const matchStage = entity_id ? { $match: { entityId: entity_id } } : { $match: {} };
+
     const stats = await Document.aggregate([
+      matchStage,
       { $group: { _id: "$processingStatus", count: { $sum: 1 } } }
     ]);
     
@@ -106,7 +122,12 @@ const getProcessingStatus = async (req, res) => {
 // @access  Private/Admin
 const getJobStatus = async (req, res) => {
   try {
-    let jobs = await ProcessingJob.find().sort({ createdAt: -1 }).limit(10);
+    const { entity_id } = req.query;
+    const query = {};
+    if (entity_id) {
+      query.entityId = entity_id;
+    }
+    let jobs = await ProcessingJob.find(query).sort({ createdAt: -1 }).limit(10);
     let currentJob = null;
     
     // Find the most recent job that still has documents in the database
@@ -136,7 +157,9 @@ const getJobStatus = async (req, res) => {
 // @access  Private/Admin
 const stopProcessingJob = async (req, res) => {
   try {
-    let job = await ProcessingJob.findOne().sort({ createdAt: -1 });
+    const { entityId } = req.body;
+    const query = entityId ? { entityId } : {};
+    let job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
     if (job && job.status === 'PROCESSING') {
       job.stopRequested = true;
       await job.save();
@@ -177,7 +200,7 @@ const processDocumentsBackground = async (jobId) => {
       const currentBatchSize = Math.min(batchSize, remainingToProcess);
 
       // Fetch unprocessed documents for this batch
-      const query = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
+      const query = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] }, entityId: job.entityId };
       if (job.batchId) {
         query.batchId = job.batchId;
       }
@@ -210,8 +233,7 @@ const processDocumentsBackground = async (jobId) => {
         collected_at: d.collectedDate ? d.collectedDate.toISOString() : null
       }));
 
-      // Fetch existing narratives
-      const existingNarrativesList = await Narrative.find({});
+      const existingNarrativesList = await Narrative.find({ entityId: job.entityId });
       const formattedExisting = existingNarrativesList.map(n => ({
         narrative_id: n.narrativeId,
         text: n.description,
@@ -224,10 +246,31 @@ const processDocumentsBackground = async (jobId) => {
         sentiment: n.analysis?.sentiment || 0.0
       }));
 
+      // Fetch entity context
+      const entityObj = await Entity.findOne({ entityId: job.entityId });
+      const entityContext = entityObj ? {
+        entity_id: entityObj.entityId,
+        entity_name: entityObj.name,
+        entity_type: entityObj.entityType,
+        domain: entityObj.domain
+      } : {
+        entity_id: job.entityId,
+        entity_name: "Unknown",
+        entity_type: "Unknown",
+        domain: "Unknown"
+      };
+
+      // Fetch existing topics
+      const existingTopics = await Topic.find({ entityId: job.entityId });
+      const formattedTopics = existingTopics.map(t => ({
+        topic_id: t.topicId || `TOPIC_LEGACY_${t._id.toString()}`,
+        name: t.name
+      }));
+
       let aiResponse;
       try {
         const aiService = (await import('../services/aiService.js')).default;
-        aiResponse = await aiService.processBatch(formattedDocs, formattedExisting);
+        aiResponse = await aiService.processBatch(formattedDocs, formattedExisting, entityContext, formattedTopics);
       } catch (aiErr) {
         // AI Error
         await Document.updateMany({ _id: { $in: docIds } }, { $set: { processingStatus: 'failed', processingError: aiErr.message } });
@@ -256,6 +299,7 @@ const processDocumentsBackground = async (jobId) => {
             {
               $set: {
                 narrativeId: nar.narrative_id,
+                entityId: job.entityId,
                 topic: nar.topic || 'Unknown',
                 description: nar.narrative,
                 intelligence: nar.intelligence || '',
@@ -267,6 +311,20 @@ const processDocumentsBackground = async (jobId) => {
             },
             { upsert: true, new: true }
           );
+
+          // Save new topic if the AI decided to create one
+          if (nar.is_new_topic && nar.topic && nar.topic !== 'Unknown') {
+            try {
+              const topicIdToSave = nar.topic_id || `TOPIC_${Date.now()}`;
+              await Topic.updateOne(
+                { entityId: job.entityId, name: nar.topic },
+                { $set: { topicId: topicIdToSave, name: nar.topic, entityId: job.entityId } },
+                { upsert: true }
+              );
+            } catch (err) {
+              console.error('Error saving new topic:', err);
+            }
+          }
         }
       }
 
@@ -308,17 +366,21 @@ const processDocumentsBackground = async (jobId) => {
 // @access  Private/Admin
 const startProcessingJob = async (req, res) => {
   try {
-    const { batchId, limit } = req.body;
+    const { batchId, limit, entityId } = req.body;
     let limitNum = Number(limit);
     if (!limitNum || limitNum <= 0) {
       return res.status(400).json({ message: 'Valid processing limit is required.' });
     }
 
     let job;
+    const query = {};
+    if (entityId) query.entityId = entityId;
+
     if (batchId) {
-      job = await ProcessingJob.findOne({ batchId: batchId }).sort({ createdAt: -1 });
+      query.batchId = batchId;
+      job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
     } else {
-      job = await ProcessingJob.findOne().sort({ createdAt: -1 });
+      job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
     }
 
     if (!job || job.status === 'IDLE') {
@@ -329,10 +391,11 @@ const startProcessingJob = async (req, res) => {
       return res.status(400).json({ message: 'A processing job is already running.' });
     }
 
-    const query = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
-    if (job.batchId) query.batchId = job.batchId;
+    const docQuery = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
+    if (job.batchId) docQuery.batchId = job.batchId;
+    if (job.entityId) docQuery.entityId = job.entityId;
     
-    const unprocessedCount = await Document.countDocuments(query);
+    const unprocessedCount = await Document.countDocuments(docQuery);
     if (unprocessedCount === 0) {
       return res.status(400).json({ message: 'No pending documents found to process in this batch.' });
     }

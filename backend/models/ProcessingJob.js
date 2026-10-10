@@ -5,6 +5,11 @@ const processingJobSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  entityId: {
+    type: String,
+    required: true,
+    index: true
+  },
   status: {
     type: String,
     enum: ['READY', 'PROCESSING', 'COMPLETED', 'FAILED', 'STOPPED', 'IDLE'],

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Network,
@@ -10,11 +10,18 @@ import {
   ArrowRight,
   Bot,
   BarChart3,
+  Folder,
+  Building2
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useEntity } from '../context/EntityContext';
 
 const adminLoginUrl = 'http://localhost:5174/login';
 
 const Landing = () => {
+  const { user } = useAuth();
+  const { entities, loading: entitiesLoading, changeEntity } = useEntity();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({ sources: 0, topics: 0 });
 
   useEffect(() => {
@@ -28,6 +35,76 @@ const Landing = () => {
     };
     fetchStats();
   }, []);
+
+  if (user) {
+    if (entitiesLoading) return <div>Loading entities...</div>;
+
+    const domainMap = entities.reduce((acc, entity) => {
+      if (!acc[entity.domain]) {
+        acc[entity.domain] = { count: 0, entities: [] };
+      }
+      acc[entity.domain].count += 1;
+      acc[entity.domain].entities.push(entity);
+      return acc;
+    }, {});
+
+    const domainList = Object.keys(domainMap).sort();
+
+    return (
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="flex flex-col mb-12">
+          <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Select Intelligence Domain</h1>
+          <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>Choose an entity to view its intelligence dashboard.</p>
+        </div>
+
+        {domainList.map(domain => (
+          <div key={domain} className="mb-12">
+            <h2 className="flex items-center gap-2 mb-6 text-primary-color border-b border-gray-800 pb-2">
+              <Folder size={20} />
+              {domain}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {domainMap[domain].entities.map(entity => (
+                <div 
+                  key={entity.entityId} 
+                  className="card hover:border-primary-color transition-colors cursor-pointer flex flex-col"
+                  onClick={() => {
+                    changeEntity(entity.entityId);
+                    navigate('/narratives');
+                  }}
+                  style={{ padding: '1.5rem', border: '1px solid var(--border-color)', borderRadius: '12px' }}
+                >
+                  <div className="flex items-center gap-4 mb-5">
+                    <div className="p-3 bg-secondary rounded-lg" style={{ backgroundColor: 'var(--bg-color)' }}>
+                      <Building2 size={24} className="text-primary-color" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="truncate m-0" style={{ color: 'var(--text-color)', fontSize: '1.25rem', fontWeight: 600 }}>{entity.name}</h3>
+                        <div className="badge shrink-0" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '12px', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>{entity.entityType}</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-auto pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                    <div className="flex items-center justify-between text-primary-color text-sm font-medium">
+                      <span>Open Intelligence Dashboard</span>
+                      <ArrowRight size={18} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {domainList.length === 0 && (
+          <div className="text-center p-12 card text-secondary">
+            No active intelligence domains found.
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="landing-shell">

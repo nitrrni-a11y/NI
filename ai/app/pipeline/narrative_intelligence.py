@@ -13,34 +13,15 @@ from app.pipeline.schemas import (
     FinalNarrative,
     NarrativeEvidence,
     NarrativeAnalysis,
-    EnrichedClaim
+    EnrichedClaim,
+    EntityContext
 )
 from app.pipeline.claim_enrichment import get_model
 from app.pipeline.gemini_utils import generate_with_retry
 
 load_dotenv()
 
-ALLOWED_TOPICS = [
-    "Academics & Curriculum",
-    "Faculty & Teaching Quality",
-    "Placements & Internships",
-    "Salaries & Career Outcomes",
-    "Campus Infrastructure",
-    "Hostel & Accommodation",
-    "Student Life",
-    "Clubs & Extracurricular Activities",
-    "Events & Festivals",
-    "Admissions & Eligibility",
-    "Fees & Financial Support",
-    "Departments & Academic Programs",
-    "Research & Innovation",
-    "Administration & Student Services",
-    "College Reputation & Overall Experience",
-    "Other"
-]
-
 class GeminiNewNarrativeResult(BaseModel):
-    topic: str = Field(description="Must be EXACTLY ONE of the allowed topics. Do not invent a topic. Use 'Other' if none match.")
     narrative: str = Field(description="Specific recurring perspective/idea supported by the claims.")
     intelligence: str = Field(description="Concise intelligence summary grounded in the provided analysis.")
     recommendation: str = Field(description="Actionable recommendation based on evidence. State if evidence is weak.")
@@ -89,20 +70,24 @@ def resolve_identity(candidate_text: str, existing_narratives: List[ExistingNarr
 def generate_new_narrative(
     group: ClaimGroup, 
     evidence: NarrativeEvidence, 
-    analysis: NarrativeAnalysis
+    analysis: NarrativeAnalysis,
+    analysis_context: EntityContext
 ) -> FinalNarrative:
     client = get_gemini_client()
 
     prompt = f"""
-You are an intelligence analyst. Analyze this group of semantically related claims and their analysis data.
+You are an intelligence analyst analyzing narratives for the following entity:
+Entity Name: {analysis_context.entity_name}
+Entity Type: {analysis_context.entity_type}
+Domain: {analysis_context.domain}
+
+Analyze this group of semantically related claims and their analysis data.
 Make ONE call to generate the Topic, Narrative, Intelligence, and Recommendation.
 
 CRITICAL RULES:
-1. Topic MUST be chosen exactly from this list. Do not create a new topic. If it does not fit, choose 'Other'.
-Allowed Topics: {', '.join(ALLOWED_TOPICS)}
-2. Narrative = specific recurring perspective/idea supported by the claims. Do not just restate the topic.
-3. Intelligence must be strictly grounded in the provided analysis (e.g., claim count, sentiment, trend). Do not invent facts.
-4. Recommendation must be actionable. If evidence is weak (e.g., 1 claim, single source), explicitly state that evidence is insufficient for a strong recommendation and suggest monitoring.
+1. Narrative = specific recurring perspective/idea supported by the claims.
+2. Intelligence must be strictly grounded in the provided analysis (e.g., claim count, sentiment, trend). Do not invent facts. Contextualize the intelligence for the entity.
+3. Recommendation must be actionable for the entity. If evidence is weak (e.g., 1 claim, single source), explicitly state that evidence is insufficient for a strong recommendation and suggest monitoring.
 
 Data:
 Claims: {group.claim_texts}
@@ -129,18 +114,16 @@ Strength Score (0 to 1): {analysis.strength}
         
         narrative_id = f"NAR_{uuid.uuid4().hex[:8]}"
 
-        topic_clean = result.topic.strip()
-        if topic_clean not in ALLOWED_TOPICS:
-            topic_clean = "Other"
-
         return FinalNarrative(
             narrative_id=narrative_id,
-            topic=topic_clean,
+            topic="",
+            topic_id="",
             narrative=result.narrative.strip(),
             supporting_evidence=evidence,
             analysis=analysis,
             intelligence=result.intelligence.strip(),
-            recommendation=result.recommendation.strip()
+            recommendation=result.recommendation.strip(),
+            is_new_topic=False
         )
 
     except Exception as e:
@@ -151,7 +134,8 @@ def update_matched_narrative(
     existing: ExistingNarrative, 
     new_group_claims: List[EnrichedClaim],
     new_evidence: NarrativeEvidence,
-    new_analysis: NarrativeAnalysis
+    new_analysis: NarrativeAnalysis,
+    analysis_context: EntityContext
 ) -> FinalNarrative:
     """
     Merge the old narrative state with the new claims, and use ONE LLM call to update intelligence.
@@ -202,13 +186,18 @@ def update_matched_narrative(
     )
 
     prompt = f"""
-You are an intelligence analyst. An existing narrative has received NEW supporting evidence.
+You are an intelligence analyst analyzing narratives for the following entity:
+Entity Name: {analysis_context.entity_name}
+Entity Type: {analysis_context.entity_type}
+Domain: {analysis_context.domain}
+
+An existing narrative has received NEW supporting evidence.
 Update the Intelligence and Recommendation using the COMBINED, updated statistics.
 
 CRITICAL RULES:
-1. Focus ONLY on this specific narrative.
+1. Focus ONLY on this specific narrative and context.
 2. Ground your intelligence strictly in the updated analysis (e.g., total claim count, combined sentiment, trend). Do not invent facts.
-3. The recommendation MUST be actionable based on the combined evidence.
+3. The recommendation MUST be actionable for the entity based on the combined evidence.
 4. Output only the updated intelligence and recommendation.
 
 Data:
@@ -250,3 +239,4 @@ New Incoming Claims That Triggered This Update:
 
     except Exception as e:
         raise RuntimeError(f"Gemini matched narrative update failed: {e}")
+

@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Database, Hash, Cpu, AlertCircle } from 'lucide-react';
+import { useEntity } from '../context/EntityContext';
 
 const Dashboard = () => {
+  const { selectedEntity } = useEntity();
   const [stats, setStats] = useState({
     documents: 0,
     sources: 0,
@@ -12,11 +14,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     const fetchStats = async () => {
+      if (!selectedEntity) return;
       try {
         const [docsRes, sourcesRes, procRes] = await Promise.all([
-          axios.get('/api/documents', { withCredentials: true }),
-          axios.get('/api/sources', { withCredentials: true }),
-          axios.get('/api/processing/status', { withCredentials: true })
+          axios.get(`/api/documents?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
+          axios.get(`/api/sources?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
+          axios.get(`/api/processing/status?entity_id=${selectedEntity.entityId}`, { withCredentials: true })
         ]);
         
         setStats({
@@ -31,15 +34,16 @@ const Dashboard = () => {
       }
     };
     fetchStats();
-  }, []);
+  }, [selectedEntity]);
 
   if (loading) return <div className="p-4">Loading operational dashboard...</div>;
+  if (!selectedEntity) return <div className="p-4">Please select a workspace.</div>;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1>Operations Dashboard</h1>
-        <p className="text-secondary mt-1">System overview and intelligence pipeline status.</p>
+      <div className="flex flex-col mb-12">
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Operations Dashboard</h1>
+        <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>System overview and intelligence pipeline status.</p>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -91,3 +95,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+

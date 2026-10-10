@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Search, PlusCircle, Database, Trash2, Upload, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useEntity } from '../context/EntityContext';
 
 const DataManagement = () => {
+  const { selectedEntity } = useEntity();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -67,6 +69,7 @@ const DataManagement = () => {
     setUploadResult(null);
     const formData = new FormData();
     formData.append('file', csvFile);
+    formData.append('entity_id', selectedEntity.entityId);
 
     try {
       const res = await axios.post('/api/documents/upload', formData, {
@@ -88,7 +91,7 @@ const DataManagement = () => {
   const fetchData = async (searchQuery = '', page = 1) => {
     setLoading(true);
     try {
-      let endpoint = `/api/documents?pageNumber=${page}`;
+      let endpoint = `/api/documents?pageNumber=${page}&entity_id=${selectedEntity?.entityId || ''}`;
       if (searchQuery) {
         endpoint += `&keyword=${encodeURIComponent(searchQuery)}`;
       }
@@ -114,9 +117,11 @@ const DataManagement = () => {
   };
 
   useEffect(() => {
-    fetchData('', currentPage);
+    if (selectedEntity) {
+      fetchData('', currentPage);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+  }, [currentPage, selectedEntity]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -167,105 +172,98 @@ const DataManagement = () => {
 
   return (
     <div style={{ paddingBottom: '40px' }}>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col mb-12">
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Data Management</h1>
+        <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>Manage raw intelligence documents.</p>
         <div>
-          <h1>Data Management</h1>
-          <p className="text-secondary mt-1">Manage raw intelligence documents.</p>
+          <Link to={`/entity/${selectedEntity.entityId}/data/add`} className="btn btn-primary shadow-sm flex items-center gap-2" style={{ padding: '0.75rem 1.5rem', fontWeight: 500, width: 'fit-content' }}>
+            <PlusCircle size={20} />
+            <span>Add Document</span>
+          </Link>
         </div>
-        <Link to="/data/add" className="btn btn-primary flex items-center gap-2 shadow-sm">
-          <PlusCircle size={16} /> Add Document
-        </Link>
       </div>
 
-      <div className="flex gap-2 mb-6 shadow-sm rounded">
-        <form onSubmit={handleSearch} className="form-control flex items-center gap-2" style={{ flex: 1, padding: '0.6rem 1rem' }}>
-          <Search size={18} className="text-muted" />
-          <input 
-            type="text" 
-            placeholder="Search raw text, titles..." 
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ background: 'transparent', border: 'none', color: 'inherit', outline: 'none', width: '100%' }} 
-          />
-        </form>
-        <button className="btn btn-secondary shadow-sm" onClick={() => { setCurrentPage(1); fetchData(query, 1); }}>Search</button>
-      </div>
-
-      <div className="card mb-6 p-5 shadow-sm border border-gray-100">
-        <div className="flex justify-between items-start mb-5">
-          <div>
-            <h3 className="text-lg font-semibold flex items-center gap-2"><Upload size={18} /> Upload CSV</h3>
-            <p className="text-secondary text-sm mt-1">Upload a CSV file to ingest raw documents in bulk.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="card shadow-sm border border-gray-100 flex flex-col">
+          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><Search size={18} /> Search Documents</h3>
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <div className="form-control flex items-center gap-2" style={{ flex: 1, padding: '0.6rem 1rem' }}>
+              <Search size={18} className="text-muted" />
+              <input 
+                type="text" 
+                placeholder="Search raw text, titles..." 
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ background: 'transparent', border: 'none', color: 'inherit', outline: 'none', width: '100%' }} 
+              />
+            </div>
+            <button type="submit" className="btn btn-secondary shadow-sm">Search</button>
+          </form>
+          <div className="mt-4 text-sm text-secondary">
+            Find documents by content or metadata to manage or delete them.
           </div>
-          
-          <div className="card shadow-sm" style={{ padding: '1.25rem', margin: 0, minWidth: '350px' }}>
-            <strong className="flex items-center gap-2 text-primary mb-3" style={{ fontSize: '0.9375rem' }}><FileText size={16}/> Expected CSV Format</strong>
-            <p className="text-xs text-muted mb-3">Include the following required headers:</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '0.5rem 1rem', fontSize: '0.8125rem' }}>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>HEADER</div>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>DESCRIPTION</div>
-              <div style={{ fontWeight: 600 }}>Timestamp</div><div className="text-secondary">Collection time</div>
-              <div style={{ fontWeight: 600 }}>raw_text</div><div className="text-secondary">The full document content</div>
-              <div style={{ fontWeight: 600 }}>source</div><div className="text-secondary">Origin (e.g. Shiksha, Reddit)</div>
-              <div style={{ fontWeight: 600 }}>author</div><div className="text-secondary">Name or "Anonymous"</div>
-              <div style={{ fontWeight: 600 }}>published_date</div><div className="text-secondary">Original publication date</div>
+        </div>
+
+        <div className="card shadow-sm border border-gray-100 flex flex-col">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h3 className="text-lg font-semibold flex items-center gap-2"><Upload size={18} /> Bulk Upload CSV</h3>
+              <p className="text-secondary text-sm mt-1">Upload a dataset to ingest documents.</p>
             </div>
           </div>
-        </div>
 
-        {csvError && (
-          <div className="mb-5 p-4 rounded text-sm font-medium" style={{ backgroundColor: '#fee2e2', borderColor: '#ef4444', color: '#b91c1c', border: '1px solid' }}>
-            {csvError}
-          </div>
-        )}
+          {csvError && (
+            <div className="mb-4 p-3 rounded text-sm font-medium border border-red-300 bg-red-50 text-red-700">
+              {csvError}
+            </div>
+          )}
 
-        <div className="flex gap-4 items-center">
-          <div 
-            className="flex-1 flex items-center justify-between border-2 border-dashed rounded cursor-pointer transition-colors" 
-            style={{ padding: '0.8rem 1.2rem', borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-color)' }}
-            onClick={() => fileInputRef.current?.click()}
-            onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'var(--surface-color)'}
-            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-color)'}
-          >
-            <input 
-              type="file" 
-              accept=".csv"
-              ref={fileInputRef}
-              onChange={handleCsvChange}
-              style={{ display: 'none' }}
-            />
-            <span className="text-secondary truncate font-medium">
-              {csvFile ? csvFile.name : 'Choose CSV file or drag & drop here...'}
-            </span>
-            <button 
-              type="button" 
-              className="btn btn-secondary shadow-sm"
-              onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+          <div className="flex gap-4 items-center mt-auto">
+            <div 
+              className="flex-1 flex items-center justify-between border-2 border-dashed rounded cursor-pointer transition-colors" 
+              style={{ padding: '0.8rem 1.2rem', borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-color)' }}
+              onClick={() => fileInputRef.current?.click()}
             >
-              Browse
+              <input 
+                type="file" 
+                accept=".csv"
+                ref={fileInputRef}
+                onChange={handleCsvChange}
+                style={{ display: 'none' }}
+              />
+              <span className="text-secondary truncate font-medium text-sm">
+                {csvFile ? csvFile.name : 'Choose CSV or drop here'}
+              </span>
+              <button 
+                type="button" 
+                className="btn btn-secondary shadow-sm py-1 px-3 text-sm"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              >
+                Browse
+              </button>
+            </div>
+            <button 
+              className="btn btn-primary shadow-sm" 
+              onClick={handleCsvUpload} 
+              disabled={!csvFile || uploading || csvError}
+              style={{ padding: '0.6rem 1.5rem', opacity: (!csvFile || uploading || csvError) ? 0.6 : 1 }}
+            >
+              {uploading ? 'Uploading...' : 'Upload'}
             </button>
           </div>
-          <button 
-            className="btn btn-primary shadow-sm" 
-            onClick={handleCsvUpload} 
-            disabled={!csvFile || uploading || csvError}
-            style={{ padding: '0.6rem 1.5rem', opacity: (!csvFile || uploading || csvError) ? 0.6 : 1 }}
-          >
-            {uploading ? 'Uploading...' : 'Upload & Parse CSV'}
-          </button>
+          {uploadResult && (
+            <div className="mt-4 p-3 rounded border font-medium text-sm" style={{ 
+              backgroundColor: uploadResult.success ? '#dcfce7' : '#fee2e2', 
+              borderColor: uploadResult.success ? '#22c55e' : '#ef4444', 
+              color: uploadResult.success ? '#15803d' : '#b91c1c' 
+            }}>
+              <p>{uploadResult.message}</p>
+              {uploadResult.success && uploadResult.savedCount !== undefined && (
+                <p className="mt-1 font-normal opacity-90">Saved records: {uploadResult.savedCount} / Total: {uploadResult.totalRows}</p>
+              )}
+            </div>
+          )}
         </div>
-        {uploadResult && (
-          <div className="mt-5 p-4 rounded border font-medium text-sm" style={{ 
-            backgroundColor: uploadResult.success ? '#dcfce7' : '#fee2e2', 
-            borderColor: uploadResult.success ? '#22c55e' : '#ef4444', 
-            color: uploadResult.success ? '#15803d' : '#b91c1c' 
-          }}>
-            <p>{uploadResult.message}</p>
-            {uploadResult.success && uploadResult.savedCount !== undefined && (
-              <p className="mt-1 font-normal opacity-90">Saved records: {uploadResult.savedCount} / Total rows: {uploadResult.totalRows}</p>
-            )}
-          </div>
-        )}
       </div>
 
       {loading ? (
@@ -557,3 +555,4 @@ const DataManagement = () => {
 };
 
 export default DataManagement;
+

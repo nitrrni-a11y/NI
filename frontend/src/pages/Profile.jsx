@@ -9,8 +9,8 @@ const Profile = () => {
 
   return (
     <div>
-      <div className="mb-4">
-        <h1>User Profile</h1>
+      <div className="flex flex-col mb-12">
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>User Profile</h1>
       </div>
 
       <div className="card" style={{ maxWidth: '500px' }}>

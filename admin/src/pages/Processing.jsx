@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Cpu, Play, CheckCircle, Clock, AlertTriangle, Square, XCircle } from 'lucide-react';
+import { useEntity } from '../context/EntityContext';
 
 const Processing = () => {
+  const { selectedEntity } = useEntity();
   const [stats, setStats] = useState(null);
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -10,10 +12,12 @@ const Processing = () => {
   const [processLimit, setProcessLimit] = useState(0);
 
   const fetchData = async () => {
+    if (!selectedEntity) return;
+    
     try {
       const [statsRes, jobRes] = await Promise.all([
-        axios.get('/api/processing/status', { withCredentials: true }),
-        axios.get('/api/processing/job-status', { withCredentials: true })
+        axios.get(`/api/processing/status?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
+        axios.get(`/api/processing/job-status?entity_id=${selectedEntity.entityId}`, { withCredentials: true })
       ]);
       setStats(statsRes.data);
       const currentJob = jobRes.data;
@@ -39,7 +43,7 @@ const Processing = () => {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [job?.status]);
+  }, [job?.status, selectedEntity]);
 
   const handleStart = async () => {
     if (processLimit <= 0) {
@@ -50,7 +54,8 @@ const Processing = () => {
     try {
       await axios.post('/api/processing/start', { 
         batchId: job?.batchId, 
-        limit: processLimit 
+        limit: processLimit,
+        entityId: selectedEntity.entityId
       }, { withCredentials: true });
       await fetchData();
     } catch (err) {
@@ -63,7 +68,7 @@ const Processing = () => {
   const handleStop = async () => {
     setActionLoading(true);
     try {
-      await axios.post('/api/processing/stop', {}, { withCredentials: true });
+      await axios.post('/api/processing/stop', { entityId: selectedEntity.entityId }, { withCredentials: true });
       await fetchData();
     } catch (err) {
       alert('Error stopping processing.');
@@ -100,9 +105,9 @@ const Processing = () => {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1>AI Processing Pipeline</h1>
-        <p className="text-secondary mt-1">Manage the AI document processing and Narrative extraction queues.</p>
+      <div className="flex flex-col mb-12">
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>AI Processing Pipeline</h1>
+        <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>Manage the AI document processing and Narrative extraction queues.</p>
       </div>
 
       <div className={`card mb-6 ${stats?.aiIntegrationEnabled ? 'border-success' : 'border-warning'}`}>
@@ -298,3 +303,4 @@ const Processing = () => {
 };
 
 export default Processing;
+
