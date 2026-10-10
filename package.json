@@ -1,0 +1,10 @@
+{
+  "name": "ni-project",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k --names backend,frontend,admin,ai \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\" \"npm --prefix admin run dev\" \"cd ai && .\\venv\\Scripts\\python -m uvicorn app.main:app --reload\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
