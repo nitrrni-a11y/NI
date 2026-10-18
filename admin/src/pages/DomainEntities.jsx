@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
-import { Search, Plus, Building2, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Search, Plus, Building2, ArrowRight, ArrowLeft, X } from 'lucide-react';
 import axios from 'axios';
 
 const DomainEntities = () => {
@@ -65,7 +65,7 @@ const DomainEntities = () => {
   );
   const [newEntity, setNewEntity] = useState({
     name: '',
-    entityType: '',
+    entityType: 'Brand',
     description: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,15 +84,15 @@ const DomainEntities = () => {
   };
 
   const handleCreateEntity = async () => {
-    if (!newEntity.name || !newEntity.entityType) return;
+    if (!newEntity.name.trim() || !newEntity.entityType.trim()) return;
     
     setIsSubmitting(true);
     try {
       const res = await axios.post('/api/entities', {
-        name: newEntity.name,
-        entityType: newEntity.entityType,
+        name: newEntity.name.trim(),
+        entityType: newEntity.entityType.trim(),
         domain: domain,
-        description: newEntity.description
+        description: newEntity.description.trim()
       }, { withCredentials: true });
       
       // Auto navigate to new entity
@@ -100,7 +100,7 @@ const DomainEntities = () => {
       navigate(`/entity/${res.data.entityId}/dashboard`);
     } catch (error) {
       console.error('Failed to create entity:', error);
-      alert('Failed to create entity');
+      alert(error.response?.data?.message || 'Failed to create entity');
       setIsSubmitting(false);
     }
   };
@@ -206,54 +206,168 @@ const DomainEntities = () => {
       </div>
 
       {showAddModal && (
-        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.6)' }}>
-          <div className="modal-content shadow-lg" style={{ maxWidth: '500px', width: '100%', padding: '2rem', borderRadius: '12px' }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Create Entity</h2>
-            
-            <div className="form-group mb-6">
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: 'var(--text-primary)' }}>Domain</label>
-              <input type="text" className="form-control" value={domain} disabled style={{ backgroundColor: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', width: '100%', padding: '0.75rem', borderRadius: '6px' }} />
-            </div>
-
-            <div className="form-group mb-6">
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: 'var(--text-primary)' }}>Entity Name <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                className="form-control"
-                value={newEntity.name}
-                onChange={(e) => setNewEntity({...newEntity, name: e.target.value})}
-                placeholder="e.g. NIT Raipur, iPhone"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)' }}
-              />
-            </div>
-
-            <div className="form-group mb-6">
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: 'var(--text-primary)' }}>Entity Type <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                className="form-control"
-                value={newEntity.entityType}
-                onChange={(e) => setNewEntity({...newEntity, entityType: e.target.value})}
-                placeholder="e.g. Institution, Product, Company"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)' }}
-              />
-            </div>
-
-            <div className="form-group mb-6">
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, color: 'var(--text-primary)' }}>Description <span className="text-gray-400 font-normal">(Optional)</span></label>
-              <textarea
-                className="form-control"
-                value={newEntity.description}
-                onChange={(e) => setNewEntity({...newEntity, description: e.target.value})}
-                placeholder="Brief description of the entity"
-                rows={3}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', resize: 'vertical' }}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
+        <div 
+          className="modal-overlay" 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(15, 23, 42, 0.7)', 
+            backdropFilter: 'blur(8px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999,
+            padding: '1rem'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddModal(false);
+          }}
+        >
+          <div 
+            style={{ 
+              maxWidth: '520px', 
+              width: '100%', 
+              backgroundColor: '#ffffff', 
+              color: '#0f172a',
+              borderRadius: '16px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+              border: '1px solid #e2e8f0',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '1.5rem 1.75rem 1.25rem', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', backgroundColor: '#ffffff' }}>
+              <div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.25rem 0.65rem', borderRadius: '999px', backgroundColor: '#eff6ff', color: '#2563eb', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.5rem', border: '1px solid #bfdbfe' }}>
+                  <span>Domain:</span>
+                  <span style={{ color: '#1d4ed8' }}>{domain}</span>
+                </div>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                  Create New Entity
+                </h2>
+                <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.875rem' }}>
+                  Add an entity to start tracking and analyzing narratives.
+                </p>
+              </div>
               <button 
-                className="btn text-secondary hover:text-primary transition-colors" 
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.35rem', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            {/* Modal Form Body */}
+            <div style={{ padding: '1.5rem 1.75rem', backgroundColor: '#ffffff' }}>
+              {/* Entity Name */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>
+                  Entity Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newEntity.name}
+                  onChange={(e) => setNewEntity({...newEntity, name: e.target.value})}
+                  placeholder="e.g. Nike, Apple, Starbucks"
+                  autoFocus
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.75rem 1rem', 
+                    borderRadius: '10px', 
+                    border: '1px solid #cbd5e1', 
+                    backgroundColor: '#ffffff', 
+                    color: '#0f172a',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              {/* Entity Type with Quick Select Chips */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>
+                  Entity Type <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                
+                {/* Quick Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginBottom: '0.65rem' }}>
+                  {['Brand', 'Company', 'Product', 'Institution', 'Public Figure'].map(type => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setNewEntity(prev => ({ ...prev, entityType: type }))}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '999px',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: newEntity.entityType === type ? '1.5px solid #7c3aed' : '1px solid #e2e8f0',
+                        backgroundColor: newEntity.entityType === type ? '#f5f3ff' : '#f8fafc',
+                        color: newEntity.entityType === type ? '#7c3aed' : '#475569',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  value={newEntity.entityType}
+                  onChange={(e) => setNewEntity({...newEntity, entityType: e.target.value})}
+                  placeholder="Or enter custom type..."
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.75rem 1rem', 
+                    borderRadius: '10px', 
+                    border: '1px solid #cbd5e1', 
+                    backgroundColor: '#ffffff', 
+                    color: '#0f172a',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              {/* Description (Optional) */}
+              <div style={{ marginBottom: '0.25rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 600, fontSize: '0.875rem', color: '#1e293b' }}>
+                  Description <span style={{ color: '#94a3b8', fontWeight: 400 }}>(Optional)</span>
+                </label>
+                <textarea
+                  value={newEntity.description}
+                  onChange={(e) => setNewEntity({...newEntity, description: e.target.value})}
+                  placeholder="Brief description of the entity and what to monitor..."
+                  rows={3}
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.75rem 1rem', 
+                    borderRadius: '10px', 
+                    border: '1px solid #cbd5e1', 
+                    backgroundColor: '#ffffff', 
+                    color: '#0f172a',
+                    fontSize: '0.95rem',
+                    outline: 'none',
+                    resize: 'vertical',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1.1rem 1.75rem', backgroundColor: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button 
+                type="button"
                 onClick={() => {
                   setShowAddModal(false);
                   if (location.search.includes('create=true')) {
@@ -261,15 +375,36 @@ const DomainEntities = () => {
                   }
                 }} 
                 disabled={isSubmitting}
-                style={{ padding: '0.6rem 1.25rem', backgroundColor: 'transparent', border: 'none' }}
+                style={{ 
+                  padding: '0.65rem 1.25rem', 
+                  backgroundColor: '#ffffff', 
+                  border: '1px solid #cbd5e1', 
+                  color: '#475569', 
+                  borderRadius: '10px', 
+                  fontWeight: 600, 
+                  fontSize: '0.9rem',
+                  cursor: 'pointer' 
+                }}
               >
                 Cancel
               </button>
               <button 
-                className="btn btn-primary shadow-sm" 
+                type="button"
                 onClick={handleCreateEntity}
-                disabled={!newEntity.name || !newEntity.entityType || isSubmitting}
-                style={{ padding: '0.6rem 1.25rem', fontWeight: 500 }}
+                disabled={!newEntity.name.trim() || !newEntity.entityType.trim() || isSubmitting}
+                style={{ 
+                  padding: '0.65rem 1.5rem', 
+                  background: (!newEntity.name.trim() || !newEntity.entityType.trim() || isSubmitting) 
+                    ? '#cbd5e1' 
+                    : 'linear-gradient(135deg, #2563eb, #7c3aed)', 
+                  border: 'none', 
+                  color: '#ffffff', 
+                  borderRadius: '10px', 
+                  fontWeight: 600, 
+                  fontSize: '0.9rem',
+                  cursor: (!newEntity.name.trim() || !newEntity.entityType.trim() || isSubmitting) ? 'not-allowed' : 'pointer',
+                  boxShadow: (!newEntity.name.trim() || !newEntity.entityType.trim() || isSubmitting) ? 'none' : '0 4px 12px rgba(124, 58, 237, 0.25)'
+                }}
               >
                 {isSubmitting ? 'Creating...' : 'Create Entity'}
               </button>
@@ -279,7 +414,7 @@ const DomainEntities = () => {
       )}
       {showEditDomainModal && (
         <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.6)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
-          <div className="modal-content shadow-lg bg-white" style={{ maxWidth: '500px', width: '100%', padding: '2rem', borderRadius: '12px' }}>
+          <div className="modal-content shadow-lg" style={{ maxWidth: '500px', width: '100%', padding: '2rem', borderRadius: '12px', backgroundColor: '#ffffff', color: '#0f172a' }}>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1.5rem', color: 'var(--text-primary)' }}>Edit Domain</h2>
             
             {domainError && <div className="p-3 mb-4 rounded border border-red-200 bg-red-50 text-red-600 text-sm">{domainError}</div>}
@@ -330,7 +465,7 @@ const DomainEntities = () => {
 
       {showDeleteDomainModal && (
         <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.6)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
-          <div className="modal-content shadow-lg bg-white" style={{ maxWidth: '500px', width: '100%', padding: '2rem', borderRadius: '12px' }}>
+          <div className="modal-content shadow-lg" style={{ maxWidth: '500px', width: '100%', padding: '2rem', borderRadius: '12px', backgroundColor: '#ffffff', color: '#0f172a' }}>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '1rem', color: '#ef4444' }}>Delete Domain</h2>
             
             <div className="mb-6 text-secondary" style={{ lineHeight: '1.6' }}>

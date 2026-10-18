@@ -107,9 +107,9 @@ const Domains = () => {
       </div>
 
       {showAddModal && (
-        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.6)' }}>
-          <div className="modal-content shadow-lg" style={{ maxWidth: '450px', width: '100%', padding: '2rem', borderRadius: '12px' }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Add Domain</h2>
+        <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(8px)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
+          <div className="modal-content shadow-lg" style={{ maxWidth: '450px', width: '100%', padding: '2rem', borderRadius: '12px', backgroundColor: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.5rem', color: '#0f172a' }}>Add Domain</h2>
             <p className="text-secondary mb-6" style={{ lineHeight: 1.5 }}>
               Create a new domain to organize related entities. You will be prompted to create your first entity inside this domain.
             </p>
