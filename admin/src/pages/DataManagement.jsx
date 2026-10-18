@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, PlusCircle, Database, Trash2, Upload, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { 
+  Search, PlusCircle, Database, Trash2, Upload, FileText, 
+  ChevronLeft, ChevronRight, Globe, Calendar, Clock, Sparkles, 
+  CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight 
+} from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
 
 const DataManagement = () => {
   const { selectedEntity } = useEntity();
+  const navigate = useNavigate();
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -24,12 +29,25 @@ const DataManagement = () => {
   const [viewDoc, setViewDoc] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+
+  // Web Scraper states
+  const [showScraperModal, setShowScraperModal] = useState(false);
+  const [scraperQuery, setScraperQuery] = useState('');
+  const [timeframe, setTimeframe] = useState('30d');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [scrapeLimit, setScrapeLimit] = useState(25);
+  const [isScraping, setIsScraping] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewArticles, setPreviewArticles] = useState(null);
+  const [scraperResult, setScraperResult] = useState(null);
+  const [scraperError, setScraperError] = useState(null);
   
   const fileInputRef = React.useRef(null);
 
   // Scroll lock for modals
   useEffect(() => {
-    if (viewDoc || deleteConfirmation) {
+    if (viewDoc || deleteConfirmation || showScraperModal) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -37,7 +55,7 @@ const DataManagement = () => {
     return () => {
       document.body.style.overflow = '';
     };
-  }, [viewDoc, deleteConfirmation]);
+  }, [viewDoc, deleteConfirmation, showScraperModal]);
 
   const handleCsvChange = (e) => {
     const file = e.target.files[0];
@@ -170,20 +188,157 @@ const DataManagement = () => {
     }
   };
 
+  const handleOpenScraperModal = () => {
+    setScraperQuery(selectedEntity?.name || '');
+    setScraperError(null);
+    setScraperResult(null);
+    setPreviewArticles(null);
+    setShowScraperModal(true);
+  };
+
+  const handlePreviewScraper = async () => {
+    if (!scraperQuery.trim()) {
+      setScraperError('Please enter a search topic or keyword.');
+      return;
+    }
+    if (timeframe === 'custom' && !customStartDate) {
+      setScraperError('Please choose at least a start date for the custom range.');
+      return;
+    }
+    setIsPreviewing(true);
+    setScraperError(null);
+    setScraperResult(null);
+
+    try {
+      const res = await axios.post('/api/scraper/preview', {
+        entityId: selectedEntity?.entityId,
+        query: scraperQuery.trim(),
+        timeframe,
+        customStartDate: timeframe === 'custom' ? customStartDate : undefined,
+        customEndDate: timeframe === 'custom' ? customEndDate : undefined,
+        limit: Math.min(Number(scrapeLimit) || 10, 25)
+      }, { withCredentials: true });
+
+      if (res.data && res.data.articles) {
+        setPreviewArticles(res.data.articles);
+        if (res.data.articles.length === 0) {
+          setScraperError('No articles found matching your query and timeframe.');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setScraperError(err.response?.data?.message || err.message || 'Failed to preview news articles');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
+  const handleRunScraper = async () => {
+    if (!scraperQuery.trim()) {
+      setScraperError('Please enter a search topic or keyword.');
+      return;
+    }
+    if (timeframe === 'custom' && !customStartDate) {
+      setScraperError('Please choose at least a start date for the custom range.');
+      return;
+    }
+    setIsScraping(true);
+    setScraperError(null);
+    setScraperResult(null);
+
+    try {
+      const res = await axios.post('/api/scraper/scrape', {
+        entityId: selectedEntity?.entityId,
+        query: scraperQuery.trim(),
+        timeframe,
+        customStartDate: timeframe === 'custom' ? customStartDate : undefined,
+        customEndDate: timeframe === 'custom' ? customEndDate : undefined,
+        limit: Number(scrapeLimit) || 25
+      }, { withCredentials: true });
+
+      setScraperResult(res.data);
+      // Refresh documents table automatically
+      fetchData(query, 1);
+    } catch (err) {
+      console.error(err);
+      setScraperError(err.response?.data?.message || err.message || 'Failed to scrape and ingest articles');
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
   return (
     <div style={{ paddingBottom: '40px' }}>
-      <div className="flex flex-col mb-12">
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Data Management</h1>
-        <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>Manage raw intelligence documents.</p>
-        <div>
-          <Link to={`/entity/${selectedEntity.entityId}/data/add`} className="btn btn-primary shadow-sm flex items-center gap-2" style={{ padding: '0.75rem 1.5rem', fontWeight: 500, width: 'fit-content' }}>
-            <PlusCircle size={20} />
-            <span>Add Document</span>
-          </Link>
+      <div className="flex flex-col mb-10">
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-2">
+          <div>
+            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>Data Management</h1>
+            <p className="text-secondary" style={{ fontSize: '1.05rem' }}>
+              Manage, scrape, and ingest intelligence documents for <span className="font-semibold text-primary">{selectedEntity?.name || 'Selected Entity'}</span>.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              type="button"
+              onClick={handleOpenScraperModal}
+              className="btn shadow-sm flex items-center gap-2"
+              style={{ 
+                padding: '0.75rem 1.4rem', 
+                fontWeight: 600, 
+                backgroundColor: '#2563eb', 
+                color: '#ffffff',
+                borderRadius: '8px',
+                border: 'none',
+                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
+                cursor: 'pointer'
+              }}
+            >
+              <Globe size={18} />
+              <span>Live Web Scraper</span>
+            </button>
+            <Link to={`/entity/${selectedEntity.entityId}/data/add`} className="btn btn-secondary shadow-sm flex items-center gap-2" style={{ padding: '0.75rem 1.4rem', fontWeight: 500, width: 'fit-content' }}>
+              <PlusCircle size={18} />
+              <span>Add Document</span>
+            </Link>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Scraper Quick Card */}
+        <div className="card shadow-sm border border-blue-100 flex flex-col justify-between" style={{ backgroundColor: '#f8faff' }}>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-700">
+                <Globe size={18} className="text-blue-600" /> Live Web Scraper
+              </h3>
+              <span className="badge badge-info" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', fontWeight: 600 }}>RECOMMENDED</span>
+            </div>
+            <p className="text-secondary text-sm mb-4 leading-relaxed">
+              Automated web scraping of real-time and historical news articles with exact publisher sources and publication timestamps.
+            </p>
+          </div>
+          <div>
+            <button 
+              type="button" 
+              onClick={handleOpenScraperModal}
+              className="btn w-full flex items-center justify-center gap-2 shadow-sm font-semibold"
+              style={{
+                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.65rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              <Sparkles size={16} />
+              <span>Scrape Web Data</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Search Documents Card */}
         <div className="card shadow-sm border border-gray-100 flex flex-col">
           <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><Search size={18} /> Search Documents</h3>
           <form onSubmit={handleSearch} className="flex gap-2">
@@ -200,28 +355,29 @@ const DataManagement = () => {
             <button type="submit" className="btn btn-secondary shadow-sm">Search</button>
           </form>
           <div className="mt-4 text-sm text-secondary">
-            Find documents by content or metadata to manage or delete them.
+            Find documents by content or metadata to inspect or delete them.
           </div>
         </div>
 
+        {/* Bulk Upload CSV Card */}
         <div className="card shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex justify-between items-start mb-4">
+          <div className="flex justify-between items-start mb-2">
             <div>
               <h3 className="text-lg font-semibold flex items-center gap-2"><Upload size={18} /> Bulk Upload CSV</h3>
-              <p className="text-secondary text-sm mt-1">Upload a dataset to ingest documents.</p>
+              <p className="text-secondary text-sm mt-1">Manual offline dataset ingestion.</p>
             </div>
           </div>
 
           {csvError && (
-            <div className="mb-4 p-3 rounded text-sm font-medium border border-red-300 bg-red-50 text-red-700">
+            <div className="mb-3 p-2 rounded text-xs font-medium border border-red-300 bg-red-50 text-red-700">
               {csvError}
             </div>
           )}
 
-          <div className="flex gap-4 items-center mt-auto">
+          <div className="flex gap-2 items-center mt-auto">
             <div 
               className="flex-1 flex items-center justify-between border-2 border-dashed rounded cursor-pointer transition-colors" 
-              style={{ padding: '0.8rem 1.2rem', borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-color)' }}
+              style={{ padding: '0.6rem 0.8rem', borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-color)' }}
               onClick={() => fileInputRef.current?.click()}
             >
               <input 
@@ -231,12 +387,12 @@ const DataManagement = () => {
                 onChange={handleCsvChange}
                 style={{ display: 'none' }}
               />
-              <span className="text-secondary truncate font-medium text-sm">
-                {csvFile ? csvFile.name : 'Choose CSV or drop here'}
+              <span className="text-secondary truncate font-medium text-xs">
+                {csvFile ? csvFile.name : 'Choose CSV'}
               </span>
               <button 
                 type="button" 
-                className="btn btn-secondary shadow-sm py-1 px-3 text-sm"
+                className="btn btn-secondary shadow-sm py-1 px-2 text-xs"
                 onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
               >
                 Browse
@@ -246,20 +402,20 @@ const DataManagement = () => {
               className="btn btn-primary shadow-sm" 
               onClick={handleCsvUpload} 
               disabled={!csvFile || uploading || csvError}
-              style={{ padding: '0.6rem 1.5rem', opacity: (!csvFile || uploading || csvError) ? 0.6 : 1 }}
+              style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', opacity: (!csvFile || uploading || csvError) ? 0.6 : 1 }}
             >
-              {uploading ? 'Uploading...' : 'Upload'}
+              {uploading ? '...' : 'Upload'}
             </button>
           </div>
           {uploadResult && (
-            <div className="mt-4 p-3 rounded border font-medium text-sm" style={{ 
+            <div className="mt-2 p-2 rounded border font-medium text-xs" style={{ 
               backgroundColor: uploadResult.success ? '#dcfce7' : '#fee2e2', 
               borderColor: uploadResult.success ? '#22c55e' : '#ef4444', 
               color: uploadResult.success ? '#15803d' : '#b91c1c' 
             }}>
               <p>{uploadResult.message}</p>
               {uploadResult.success && uploadResult.savedCount !== undefined && (
-                <p className="mt-1 font-normal opacity-90">Saved records: {uploadResult.savedCount} / Total: {uploadResult.totalRows}</p>
+                <p className="mt-0.5 font-normal opacity-90">Saved: {uploadResult.savedCount} / Total: {uploadResult.totalRows}</p>
               )}
             </div>
           )}
@@ -494,6 +650,21 @@ const DataManagement = () => {
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Document ID</div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{viewDoc._id}</div>
                 </div>
+                {viewDoc.url && (
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Source Article URL</div>
+                    <a 
+                      href={viewDoc.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      style={{ color: '#2563eb', fontSize: '0.875rem', wordBreak: 'break-all', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                      className="hover:underline"
+                    >
+                      {viewDoc.url}
+                      <ExternalLink size={14} />
+                    </a>
+                  </div>
+                )}
               </div>
               
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
@@ -546,6 +717,317 @@ const DataManagement = () => {
               >
                 {deleting ? 'Deleting...' : (deleteConfirmation.type === 'bulk' ? `Delete ${selectedDocs.size} Documents` : 'Delete Document')}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Web Scraper Modal */}
+      {showScraperModal && (
+        <div 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(15, 23, 42, 0.7)', 
+            backdropFilter: 'blur(4px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1.5rem' 
+          }}
+          onClick={() => { if (!isScraping && !isPreviewing) setShowScraperModal(false); }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              backgroundColor: '#ffffff', 
+              borderRadius: '12px', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', 
+              width: '100%', 
+              maxWidth: '820px', 
+              maxHeight: '90vh', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden',
+              border: '1px solid #e2e8f0'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', backgroundColor: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <Globe size={22} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Live Web Scraper & Intelligence Ingestion</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    Fetch real news articles with publisher source and publication timestamps across flexible timeframes.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowScraperModal(false)}
+                disabled={isScraping || isPreviewing}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem' }}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Target Entity Indicator */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-blue-100 bg-blue-50 text-blue-900 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Target Entity:</span>
+                  <span>{selectedEntity?.name || 'Unknown'}</span>
+                </div>
+                <span className="text-xs font-mono bg-blue-100 px-2 py-0.5 rounded text-blue-800">
+                  {selectedEntity?.entityId}
+                </span>
+              </div>
+
+              {/* Search Keywords */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+                  Search Query / Topic Keywords
+                </label>
+                <input 
+                  type="text"
+                  value={scraperQuery}
+                  onChange={(e) => setScraperQuery(e.target.value)}
+                  placeholder="e.g. NIT Raipur placements ranking admissions campus news"
+                  className="w-full p-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  style={{ borderColor: '#cbd5e1', backgroundColor: '#ffffff', color: '#0f172a' }}
+                />
+                <span className="text-xs text-gray-500 mt-1 block">
+                  Keywords used to query Google News RSS feeds and online publications.
+                </span>
+              </div>
+
+              {/* Historical Timeframe Selector */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
+                  <Calendar size={15} className="text-blue-600" /> Historical Timeframe
+                </label>
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  {[
+                    { id: '24h', label: 'Past 24h' },
+                    { id: '7d', label: 'Past 7d' },
+                    { id: '30d', label: 'Past 30d' },
+                    { id: '1y', label: 'Past 1 Year' },
+                    { id: 'all', label: 'All History' },
+                    { id: 'custom', label: 'Custom Range' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setTimeframe(item.id)}
+                      className="py-2 px-3 text-xs font-semibold rounded-lg border transition-all text-center"
+                      style={{
+                        backgroundColor: timeframe === item.id ? '#2563eb' : '#f8fafc',
+                        color: timeframe === item.id ? '#ffffff' : '#475569',
+                        borderColor: timeframe === item.id ? '#2563eb' : '#cbd5e1',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom Date Inputs if custom is chosen */}
+                {timeframe === 'custom' && (
+                  <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Start Date (After)
+                      </label>
+                      <input 
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full p-2 text-xs border rounded bg-white text-gray-800"
+                        style={{ borderColor: '#cbd5e1' }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        End Date (Before)
+                      </label>
+                      <input 
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full p-2 text-xs border rounded bg-white text-gray-800"
+                        style={{ borderColor: '#cbd5e1' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Limit Selector */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
+                  <Clock size={15} className="text-blue-600" /> Max Articles Limit
+                </label>
+                <div className="flex gap-2">
+                  {[10, 25, 50, 100].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setScrapeLimit(num)}
+                      className="py-1.5 px-4 text-xs font-semibold rounded-md border"
+                      style={{
+                        backgroundColor: scrapeLimit === num ? '#0f172a' : '#f8fafc',
+                        color: scrapeLimit === num ? '#ffffff' : '#475569',
+                        borderColor: scrapeLimit === num ? '#0f172a' : '#cbd5e1',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {num} articles
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {scraperError && (
+                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm flex items-start gap-2">
+                  <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                  <span>{scraperError}</span>
+                </div>
+              )}
+
+              {/* Scraper Result Notification */}
+              {scraperResult && (
+                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+                    <span className="font-bold text-base">{scraperResult.message}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 bg-white/70 p-3 rounded-lg border border-emerald-100 text-center">
+                    <div>
+                      <div className="text-xs text-emerald-700 uppercase font-semibold">Total Found</div>
+                      <div className="text-lg font-bold text-emerald-900">{scraperResult.totalFound}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-emerald-700 uppercase font-semibold">New Saved</div>
+                      <div className="text-lg font-bold text-emerald-900">{scraperResult.savedCount}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-emerald-700 uppercase font-semibold">Duplicates Skipped</div>
+                      <div className="text-lg font-bold text-emerald-900">{scraperResult.skippedDuplicates}</div>
+                    </div>
+                  </div>
+                  {scraperResult.batchId && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs text-emerald-800">
+                        Batch ID: <code className="bg-emerald-100 px-1 py-0.5 rounded">{scraperResult.batchId}</code>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowScraperModal(false);
+                          navigate(`/entity/${selectedEntity.entityId}/processing`);
+                        }}
+                        className="btn btn-sm flex items-center gap-1.5 font-semibold"
+                        style={{ backgroundColor: '#059669', color: '#ffffff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '6px' }}
+                      >
+                        <span>Open AI Processing Pipeline</span>
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Preview Articles List */}
+              {previewArticles && !scraperResult && (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="p-2.5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-700 flex justify-between items-center">
+                    <span>Found {previewArticles.length} Articles (Preview Only - Not Yet Saved)</span>
+                    <button
+                      type="button"
+                      onClick={handleRunScraper}
+                      disabled={isScraping}
+                      className="btn btn-sm btn-primary flex items-center gap-1 text-xs py-1 px-3"
+                    >
+                      <Sparkles size={12} />
+                      <span>Ingest All to DB</span>
+                    </button>
+                  </div>
+                  <div style={{ maxHeight: '220px', overflowY: 'auto' }} className="divide-y divide-gray-100">
+                    {previewArticles.map((art, idx) => (
+                      <div key={idx} className="p-2.5 hover:bg-gray-50 text-xs flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-gray-900 truncate">{art.title}</span>
+                          <span className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            {art.source}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-gray-500">
+                          <span>
+                            {art.publicationDate ? new Date(art.publicationDate).toLocaleDateString() : 'Date unavailable'}
+                          </span>
+                          {art.url && (
+                            <a href={art.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+                              View link <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                type="button"
+                className="btn btn-secondary text-sm" 
+                onClick={() => setShowScraperModal(false)}
+                disabled={isScraping}
+              >
+                Close
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePreviewScraper}
+                  disabled={isScraping || isPreviewing}
+                  className="btn btn-secondary text-sm flex items-center gap-2"
+                  style={{ cursor: 'pointer' }}
+                >
+                  {isPreviewing ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                  <span>{isPreviewing ? 'Finding Feeds...' : 'Preview Articles'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunScraper}
+                  disabled={isScraping || isPreviewing}
+                  className="btn text-sm flex items-center gap-2 font-semibold shadow-sm"
+                  style={{
+                    backgroundColor: '#2563eb',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.6rem 1.25rem',
+                    borderRadius: '6px',
+                    cursor: (isScraping || isPreviewing) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                  <span>{isScraping ? 'Scraping & Saving...' : 'Scrape & Ingest to Database'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

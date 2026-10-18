@@ -10,6 +10,7 @@ import adminRoutes from './routes/adminRoutes.js';
 import entityRoutes from './routes/entityRoutes.js';
 import topicRoutes from './routes/topicRoutes.js';
 import domainRoutes from './routes/domainRoutes.js';
+import scraperRoutes from './routes/scraperRoutes.js';
 
 dotenv.config();
 
@@ -49,6 +50,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/entities', entityRoutes);
 app.use('/api/domains', domainRoutes);
 app.use('/api/topics', topicRoutes);
+app.use('/api/scraper', scraperRoutes);
 app.use('/api', aiDataRoutes); // Exposes /api/sources, /api/topics, etc.
 
 app.get('/', (req, res) => {
