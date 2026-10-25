@@ -16,48 +16,25 @@ const parser = new Parser({
 const decoder = new GoogleDecoder();
 
 /**
- * Construct Google News query string with exact-match quotes, topic filters, and historical date parameters
+ * Construct Google News query string with exact-match quotes and historical date parameters
  */
-export const buildSearchQuery = (query, timeframe, customStartDate, customEndDate, topicFocus = 'all') => {
+export const buildSearchQuery = (query, timeframe, customStartDate, customEndDate) => {
   let cleanQuery = (query || '').trim();
 
-  // If query is not already quoted and contains multiple words, wrap entity in double quotes for exact matching
-  if (!cleanQuery.startsWith('"') && cleanQuery.includes(' ')) {
+  // If query is not already quoted and contains multiple words without existing quotes, wrap in double quotes
+  if (!cleanQuery.startsWith('"') && !cleanQuery.includes('"') && cleanQuery.includes(' ')) {
     cleanQuery = `"${cleanQuery}"`;
   }
 
-  // Optional topic modifiers for targeted narrative intelligence
-  let topicFilter = '';
-  switch (topicFocus) {
-    case 'placements':
-      topicFilter = '(placement OR placements OR package OR packages OR salary OR recruitment OR hire)';
-      break;
-    case 'campus':
-      topicFilter = '(hostel OR hostels OR campus OR infrastructure OR facility OR mess OR accommodation)';
-      break;
-    case 'research':
-      topicFilter = '(research OR ranking OR rankings OR patent OR innovation OR faculty OR laboratory)';
-      break;
-    case 'admissions':
-      topicFilter = '(admission OR admissions OR cutoff OR cutoffs OR counseling OR seat)';
-      break;
-    case 'all':
-    default:
-      topicFilter = '';
-      break;
-  }
-
-  let finalQuery = topicFilter ? `${cleanQuery} ${topicFilter}` : cleanQuery;
-
   switch (timeframe) {
     case '24h':
-      return `${finalQuery} when:1d`;
+      return `${cleanQuery} when:1d`;
     case '7d':
-      return `${finalQuery} when:7d`;
+      return `${cleanQuery} when:7d`;
     case '30d':
-      return `${finalQuery} when:30d`;
+      return `${cleanQuery} when:30d`;
     case '1y':
-      return `${finalQuery} when:1y`;
+      return `${cleanQuery} when:1y`;
     case 'custom': {
       let dateFilter = '';
       if (customStartDate && customEndDate) {
@@ -67,11 +44,11 @@ export const buildSearchQuery = (query, timeframe, customStartDate, customEndDat
       } else if (customEndDate) {
         dateFilter = `before:${customEndDate}`;
       }
-      return dateFilter ? `${finalQuery} ${dateFilter}` : finalQuery;
+      return dateFilter ? `${cleanQuery} ${dateFilter}` : cleanQuery;
     }
     case 'all':
     default:
-      return finalQuery;
+      return cleanQuery;
   }
 };
 
@@ -134,10 +111,9 @@ export const fetchGoogleNewsArticles = async ({
   timeframe = '30d', 
   customStartDate, 
   customEndDate, 
-  topicFocus = 'all', 
   limit = 25 
 }) => {
-  const searchQuery = buildSearchQuery(query, timeframe, customStartDate, customEndDate, topicFocus);
+  const searchQuery = buildSearchQuery(query, timeframe, customStartDate, customEndDate);
   const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-IN&gl=IN&ceid=IN:en`;
 
   const feed = await parser.parseURL(feedUrl);
@@ -149,12 +125,12 @@ export const fetchGoogleNewsArticles = async ({
   const articles = [];
   const maxItems = Math.min(Number(limit) || 25, feed.items.length);
 
-  // Extract core keywords from entity query to eliminate stray institutions
+  // Extract core keywords from query to ensure basic topic relevance
   const rawEntityWords = query
     .replace(/["']/g, '')
     .toLowerCase()
     .split(/\s+/)
-    .filter(w => w.length > 2 && !['the', 'and', 'for', 'all', 'from'].includes(w));
+    .filter(w => w.length > 2 && !['the', 'and', 'for', 'all', 'from', 'with'].includes(w));
 
   for (let i = 0; i < maxItems; i++) {
     const item = feed.items[i];
@@ -242,7 +218,6 @@ export const scrapeAndIngest = async ({
   timeframe = '30d', 
   customStartDate, 
   customEndDate, 
-  topicFocus = 'all', 
   limit = 25 
 }) => {
   if (!entityId) {
@@ -257,7 +232,6 @@ export const scrapeAndIngest = async ({
     timeframe,
     customStartDate,
     customEndDate,
-    topicFocus,
     limit: Number(limit) || 25
   });
 

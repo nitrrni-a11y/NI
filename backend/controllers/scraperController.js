@@ -13,7 +13,6 @@ export const scrapeAndIngestNews = async (req, res) => {
       timeframe = '30d', 
       customStartDate, 
       customEndDate, 
-      topicFocus = 'all',
       limit = 25 
     } = req.body;
 
@@ -41,7 +40,6 @@ export const scrapeAndIngestNews = async (req, res) => {
       timeframe,
       customStartDate,
       customEndDate,
-      topicFocus,
       limit: Math.min(Number(limit) || 25, 100)
     });
 
@@ -64,7 +62,6 @@ export const previewNews = async (req, res) => {
       timeframe = '30d', 
       customStartDate, 
       customEndDate, 
-      topicFocus = 'all',
       limit = 10 
     } = req.body;
 
@@ -87,7 +84,6 @@ export const previewNews = async (req, res) => {
       timeframe,
       customStartDate,
       customEndDate,
-      topicFocus,
       limit: Math.min(Number(limit) || 10, 50)
     });
 
