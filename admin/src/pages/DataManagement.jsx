@@ -36,6 +36,7 @@ const DataManagement = () => {
   const [timeframe, setTimeframe] = useState('30d');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [topicFocus, setTopicFocus] = useState('all');
   const [scrapeLimit, setScrapeLimit] = useState(25);
   const [isScraping, setIsScraping] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -193,6 +194,7 @@ const DataManagement = () => {
     setScraperError(null);
     setScraperResult(null);
     setPreviewArticles(null);
+    setTopicFocus('all');
     setShowScraperModal(true);
   };
 
@@ -214,6 +216,7 @@ const DataManagement = () => {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
+        topicFocus,
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
         limit: Math.min(Number(scrapeLimit) || 10, 25)
@@ -251,6 +254,7 @@ const DataManagement = () => {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
+        topicFocus,
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
         limit: Number(scrapeLimit) || 25
@@ -872,6 +876,37 @@ const DataManagement = () => {
                 )}
               </div>
 
+              {/* Intelligence Topic Focus */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
+                  <Sparkles size={15} className="text-blue-600" /> Intelligence Topic Focus
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[
+                    { id: 'all', label: 'All News & Media' },
+                    { id: 'placements', label: 'Placements & Jobs' },
+                    { id: 'campus', label: 'Campus & Hostels' },
+                    { id: 'research', label: 'Research & Faculty' },
+                    { id: 'admissions', label: 'Admissions & Cutoffs' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setTopicFocus(item.id)}
+                      className="py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all text-center"
+                      style={{
+                        backgroundColor: topicFocus === item.id ? '#2563eb' : '#f8fafc',
+                        color: topicFocus === item.id ? '#ffffff' : '#475569',
+                        borderColor: topicFocus === item.id ? '#2563eb' : '#cbd5e1',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Limit Selector */}
               <div>
                 <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
@@ -975,6 +1010,9 @@ const DataManagement = () => {
                         <div className="flex items-center justify-between text-gray-500">
                           <span>
                             {art.publicationDate ? new Date(art.publicationDate).toLocaleDateString() : 'Date unavailable'}
+                            </span>
+                            <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                              {art.rawText?.length || 0} chars (Full Body)
                           </span>
                           {art.url && (
                             <a href={art.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
