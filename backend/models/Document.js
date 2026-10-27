@@ -60,11 +60,19 @@ const documentSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    institutionId: { type: String, default: '' },
+    canonicalUrl: { type: String, default: '' },
+    contentHash: { type: String, default: '' },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+    extractionStatus: { type: String, enum: ['success', 'partial', 'failed', 'metadata_only', ''], default: '' },
+    lastCollectedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
   }
 );
+
+documentSchema.index({ institutionId:  1, canonicalUrl: 1 }, { unique: true, partialFilterExpression: { institutionId: { $type: 'string', $gt: '' }, canonicalUrl: { $type: 'string', $gt: '' } } });
 
 const Document = mongoose.model('Document', documentSchema);
 export default Document;

@@ -434,5 +434,6 @@ export {
   getProcessingStatus,
   getJobStatus,
   startProcessingJob,
-  stopProcessingJob
+  stopProcessingJob,
+  processDocumentsBackground
 };

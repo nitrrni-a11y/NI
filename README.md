@@ -114,6 +114,25 @@ The "Processing" section in the Admin Dashboard is currently a placeholder. Futu
 - Topic Modeling and Narrative Clustering
 - LLM Integrations
 
+## NIT Raipur institutional collection
+
+The admin application has a manual collection page at **Education → NIT Raipur → Institution Intelligence**. It is admin-only and creates one collection job per click; no scheduled or startup scraping is configured. The page reads source documents and analysis narratives through the Express API.
+
+Optional backend settings (all have defaults):
+
+```env
+NITRR_SITE_URL=https://www.nitrr.ac.in/
+NITRR_MAX_PAGES=30
+GDELT_DOC_URL=https://api.gdeltproject.org/api/v2/doc/doc
+GDELT_QUERIES='"NIT Raipur";NITRR Raipur'
+GDELT_MAX_RECORDS=50
+AI_SERVICE_URL=http://localhost:8000
+```
+
+The official-site collector follows same-domain links and basic `robots.txt` disallow rules, with bounded page and response sizes. It extracts HTML text; PDF links are saved as metadata-only because this project does not currently include a PDF text parser. GDELT DOC 2.0 is queried over its rolling recent-news window and normally provides article metadata rather than article text. The existing FastAPI `/process/batch` service analyzes newly collected documents only when extracted text is available. Start the backend, MongoDB, AI service, and admin Vite app as usual; no external service is called until the admin starts a scrape.
+
+If official-site requests fail with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, Node.js cannot validate the certificate chain presented on that machine. Keep TLS verification enabled. On Windows, Node.js v22.15+ supports `--use-system-ca`; start the backend with that flag when the required CA is trusted by Windows. Alternatively, set `NODE_EXTRA_CA_CERTS` to a trusted PEM CA bundle **before** starting Node. This setting is read at process startup, so placing it only in `backend/.env` is too late.
+
 ## Future Features (Next Phase)
 
 The "Processing" section in the Admin Dashboard is currently a placeholder. Future iterations will include:

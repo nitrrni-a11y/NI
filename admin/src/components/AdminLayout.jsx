@@ -8,6 +8,7 @@ import {
   PlusCircle,
   Cpu,
   Network,
+  GraduationCap,
   Settings,
   LogOut,
   MoonStar,
@@ -40,6 +41,7 @@ const AdminLayout = () => {
 
   const navItems = [
     { path: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
+    { path: 'institution', label: 'NIT Raipur Web Scraping', icon: <GraduationCap size={18} /> },
     { path: 'data', label: 'Data Management', icon: <Database size={18} /> },
     { path: 'data/add', label: 'Add Data', icon: <PlusCircle size={18} /> },
     { path: 'processing', label: 'AI Processing', icon: <Cpu size={18} /> },
@@ -67,7 +69,7 @@ const AdminLayout = () => {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map((item) => {
+          {navItems.filter(item => item.path !== 'institution' || selectedEntity?.entityId === 'ENT_45528e0f').map((item) => {
             // Check if current path ends with the item path to set active state
             // E.g. /entity/nit_raipur/dashboard ends with dashboard
             const isActive = location.pathname.split('/').pop() === item.path || (item.path === 'dashboard' && location.pathname.endsWith('/dashboard'));
