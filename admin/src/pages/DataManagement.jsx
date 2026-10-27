@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { 
   Search, PlusCircle, Database, Trash2, Upload, FileText, 
-  ChevronLeft, ChevronRight, Globe, Calendar, Clock, Sparkles, 
+  ChevronLeft, ChevronRight, Globe, Calendar, Clock, Cpu, 
   CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight 
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -310,15 +310,51 @@ const DataManagement = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Scraper Quick Card */}
-        <div className="card shadow-sm border border-blue-100 flex flex-col justify-between" style={{ backgroundColor: '#f8faff' }}>
+        <div 
+          className="card shadow-sm flex flex-col justify-between"
+          style={{
+            borderColor: 'var(--border-color)',
+            background: 'var(--surface-color)'
+          }}
+        >
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-700">
-                <Globe size={18} className="text-blue-600" /> Live Web Scraper
+              <h3 
+                className="text-lg font-semibold flex items-center gap-2"
+                style={{ color: 'var(--text-primary)', margin: 0 }}
+              >
+                <div 
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-blue)'
+                  }}
+                >
+                  <Globe size={18} />
+                </div>
+                <span>Live Web Scraper</span>
               </h3>
-              <span className="badge badge-info" style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', fontWeight: 600 }}>RECOMMENDED</span>
+              <span 
+                className="hero-badge flex items-center gap-1"
+                style={{ 
+                  fontSize: '0.7rem', 
+                  padding: '0.25rem 0.6rem',
+                  fontWeight: 700
+                }}
+              >
+                <Cpu size={12} />
+                <span>AI PIPELINE</span>
+              </span>
             </div>
-            <p className="text-secondary text-sm mb-4 leading-relaxed">
+            <p 
+              className="text-sm leading-relaxed"
+              style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
+            >
               Automated web scraping of real-time and historical news articles with exact publisher sources and publication timestamps.
             </p>
           </div>
@@ -326,22 +362,21 @@ const DataManagement = () => {
             <button 
               type="button" 
               onClick={handleOpenScraperModal}
-              className="btn w-full flex items-center justify-center gap-2 shadow-sm font-semibold"
+              className="btn w-full flex items-center justify-center gap-2 font-semibold shadow-sm"
               style={{
                 background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
                 color: '#ffffff',
                 border: 'none',
-                padding: '0.65rem 1rem',
-                borderRadius: '6px',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
                 cursor: 'pointer'
               }}
             >
-              <Sparkles size={16} />
+              <Cpu size={16} />
               <span>Scrape Web Data</span>
             </button>
           </div>
         </div>
-
         {/* Search Documents Card */}
         <div className="card shadow-sm border border-gray-100 flex flex-col">
           <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><Search size={18} /> Search Documents</h3>
@@ -748,27 +783,27 @@ const DataManagement = () => {
           <div 
             onClick={(e) => e.stopPropagation()}
             style={{ 
-              backgroundColor: '#ffffff', 
-              borderRadius: '12px', 
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', 
+              backgroundColor: 'var(--surface-color-strong, #111827)', 
+              borderRadius: '16px', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', 
               width: '100%', 
               maxWidth: '820px', 
               maxHeight: '90vh', 
               display: 'flex', 
               flexDirection: 'column', 
               overflow: 'hidden',
-              border: '1px solid #e2e8f0'
+              border: '1px solid var(--border-color)'
             }}
           >
             {/* Modal Header */}
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8fafc' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
               <div className="flex items-center gap-3">
-                <div style={{ width: '40px', height: '40px', borderRadius: '8px', backgroundColor: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
                   <Globe size={22} />
                 </div>
                 <div>
-                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Live Web Scraper & Intelligence Ingestion</h2>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Live Web Scraper & Intelligence Ingestion</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
                     Fetch real news articles with publisher source and publication timestamps across flexible timeframes.
                   </p>
                 </div>
@@ -776,7 +811,7 @@ const DataManagement = () => {
               <button 
                 onClick={() => setShowScraperModal(false)}
                 disabled={isScraping || isPreviewing}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem' }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
                 title="Close"
               >
                 <X size={20} />
@@ -786,19 +821,19 @@ const DataManagement = () => {
             {/* Modal Body */}
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {/* Target Entity Indicator */}
-              <div className="flex items-center justify-between p-3 rounded-lg border border-blue-100 bg-blue-50 text-blue-900 text-sm">
+              <div className="flex items-center justify-between p-3 rounded-lg text-sm" style={{ backgroundColor: "rgba(59, 130, 246, 0.1)", border: "1px solid rgba(59, 130, 246, 0.25)", color: "var(--text-primary)" }}>
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold">Target Entity:</span>
+                  <span className="font-semibold" style={{ color: "var(--accent-blue)" }}>Target Entity:</span>
                   <span>{selectedEntity?.name || 'Unknown'}</span>
                 </div>
-                <span className="text-xs font-mono bg-blue-100 px-2 py-0.5 rounded text-blue-800">
+                <span className="text-xs font-mono px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: "rgba(59, 130, 246, 0.2)", color: "var(--accent-blue)" }}>
                   {selectedEntity?.entityId}
                 </span>
               </div>
 
               {/* Search Keywords */}
               <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
                   Search Query / Topic Keywords
                 </label>
                 <input 
@@ -807,17 +842,17 @@ const DataManagement = () => {
                   onChange={(e) => setScraperQuery(e.target.value)}
                   placeholder="e.g. Salman Khan, Tata Motors, Bollywood, Electric Vehicles..."
                   className="w-full p-2.5 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  style={{ borderColor: '#cbd5e1', backgroundColor: '#ffffff', color: '#0f172a' }}
+                  style={{ borderColor: '#cbd5e1', backgroundColor: 'var(--surface-color-strong, #111827)', color: 'var(--text-primary)' }}
                 />
-                <span className="text-xs text-gray-500 mt-1 block">
+                <span className="text-xs mt-1 block" style={{ color: "var(--text-muted)" }}>
                   Keywords used to query Google News RSS feeds and online publications.
                 </span>
               </div>
 
               {/* Historical Timeframe Selector */}
               <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
-                  <Calendar size={15} className="text-blue-600" /> Historical Timeframe
+                <label className="block text-sm font-semibold mb-1.5 flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                  <Calendar size={15} style={{ color: "var(--accent-blue)" }} /> Historical Timeframe
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   {[
@@ -834,9 +869,9 @@ const DataManagement = () => {
                       onClick={() => setTimeframe(item.id)}
                       className="py-2 px-3 text-xs font-semibold rounded-lg border transition-all text-center"
                       style={{
-                        backgroundColor: timeframe === item.id ? '#2563eb' : '#f8fafc',
-                        color: timeframe === item.id ? '#ffffff' : '#475569',
-                        borderColor: timeframe === item.id ? '#2563eb' : '#cbd5e1',
+                        backgroundColor: timeframe === item.id ? 'var(--accent-blue)' : 'var(--bg-color)',
+                        color: timeframe === item.id ? '#ffffff' : 'var(--text-secondary)',
+                        borderColor: timeframe === item.id ? 'var(--accent-blue)' : 'var(--border-color)',
                         cursor: 'pointer'
                       }}
                     >
@@ -847,29 +882,29 @@ const DataManagement = () => {
 
                 {/* Custom Date Inputs if custom is chosen */}
                 {timeframe === 'custom' && (
-                  <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="mt-3 p-3 rounded-lg grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ backgroundColor: "var(--bg-color)", border: "1px solid var(--border-color)" }}>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
                         Start Date (After)
                       </label>
                       <input 
                         type="date"
                         value={customStartDate}
                         onChange={(e) => setCustomStartDate(e.target.value)}
-                        className="w-full p-2 text-xs border rounded bg-white text-gray-800"
-                        style={{ borderColor: '#cbd5e1' }}
+                        className="w-full p-2 text-xs border rounded"
+                        style={{ borderColor: "var(--border-color)", backgroundColor: "var(--surface-color-strong)", color: "var(--text-primary)" }}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      <label className="block text-xs font-semibold mb-1" style={{ color: "var(--text-secondary)" }}>
                         End Date (Before)
                       </label>
                       <input 
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}
-                        className="w-full p-2 text-xs border rounded bg-white text-gray-800"
-                        style={{ borderColor: '#cbd5e1' }}
+                        className="w-full p-2 text-xs border rounded"
+                        style={{ borderColor: "var(--border-color)", backgroundColor: "var(--surface-color-strong)", color: "var(--text-primary)" }}
                       />
                     </div>
                   </div>
@@ -878,8 +913,8 @@ const DataManagement = () => {
 
               {/* Limit Selector */}
               <div>
-                <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
-                  <Clock size={15} className="text-blue-600" /> Max Articles Limit
+                <label className="block text-sm font-semibold mb-1.5 flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
+                  <Clock size={15} style={{ color: "var(--accent-blue)" }} /> Max Articles Limit
                 </label>
                 <div className="flex gap-2">
                   {[10, 25, 50, 100].map((num) => (
@@ -889,9 +924,9 @@ const DataManagement = () => {
                       onClick={() => setScrapeLimit(num)}
                       className="py-1.5 px-4 text-xs font-semibold rounded-md border"
                       style={{
-                        backgroundColor: scrapeLimit === num ? '#0f172a' : '#f8fafc',
-                        color: scrapeLimit === num ? '#ffffff' : '#475569',
-                        borderColor: scrapeLimit === num ? '#0f172a' : '#cbd5e1',
+                        backgroundColor: scrapeLimit === num ? 'var(--accent-blue)' : 'var(--bg-color)',
+                        color: scrapeLimit === num ? '#ffffff' : 'var(--text-secondary)',
+                        borderColor: scrapeLimit === num ? 'var(--accent-blue)' : 'var(--border-color)',
                         cursor: 'pointer'
                       }}
                     >
@@ -903,7 +938,7 @@ const DataManagement = () => {
 
               {/* Error Message */}
               {scraperError && (
-                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm flex items-start gap-2">
+                <div className="p-3 rounded-lg border text-sm flex items-start gap-2" style={{ backgroundColor: "rgba(239, 68, 68, 0.12)", borderColor: "rgba(239, 68, 68, 0.3)", color: "#f87171" }}>
                   <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
                   <span>{scraperError}</span>
                 </div>
@@ -911,29 +946,29 @@ const DataManagement = () => {
 
               {/* Scraper Result Notification */}
               {scraperResult && (
-                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 flex flex-col gap-3">
+                <div className="p-4 rounded-xl border flex flex-col gap-3" style={{ backgroundColor: "rgba(5, 150, 105, 0.1)", borderColor: "rgba(5, 150, 105, 0.3)", color: "var(--text-primary)" }}>
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
                     <span className="font-bold text-base">{scraperResult.message}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 bg-white/70 p-3 rounded-lg border border-emerald-100 text-center">
+                  <div className="grid grid-cols-3 gap-2 p-3 rounded-lg text-center" style={{ backgroundColor: "var(--bg-color)", border: "1px solid var(--border-color)" }}>
                     <div>
-                      <div className="text-xs text-emerald-700 uppercase font-semibold">Total Found</div>
-                      <div className="text-lg font-bold text-emerald-900">{scraperResult.totalFound}</div>
+                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Total Found</div>
+                      <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{scraperResult.totalFound}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-emerald-700 uppercase font-semibold">New Saved</div>
-                      <div className="text-lg font-bold text-emerald-900">{scraperResult.savedCount}</div>
+                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--accent-green)" }}>New Saved</div>
+                      <div className="text-lg font-bold" style={{ color: "var(--accent-green)" }}>{scraperResult.savedCount}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-emerald-700 uppercase font-semibold">Duplicates Skipped</div>
-                      <div className="text-lg font-bold text-emerald-900">{scraperResult.skippedDuplicates}</div>
+                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Duplicates Skipped</div>
+                      <div className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>{scraperResult.skippedDuplicates}</div>
                     </div>
                   </div>
                   {scraperResult.batchId && (
                     <div className="flex items-center justify-between pt-1">
-                      <span className="text-xs text-emerald-800">
-                        Batch ID: <code className="bg-emerald-100 px-1 py-0.5 rounded">{scraperResult.batchId}</code>
+                      <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Batch ID: <code style={{ backgroundColor: "var(--bg-color)", padding: "0.15rem 0.4rem", borderRadius: "4px", border: "1px solid var(--border-color)" }}>{scraperResult.batchId}</code>
                       </span>
                       <button
                         type="button"
@@ -944,6 +979,7 @@ const DataManagement = () => {
                         className="btn btn-sm flex items-center gap-1.5 font-semibold"
                         style={{ backgroundColor: '#059669', color: '#ffffff', border: 'none', padding: '0.4rem 0.8rem', borderRadius: '6px' }}
                       >
+                        <Cpu size={14} />
                         <span>Open AI Processing Pipeline</span>
                         <ArrowRight size={14} />
                       </button>
@@ -954,8 +990,8 @@ const DataManagement = () => {
 
               {/* Preview Articles List */}
               {previewArticles && !scraperResult && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="p-2.5 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-700 flex justify-between items-center">
+                <div className="rounded-lg overflow-hidden border" style={{ borderColor: "var(--border-color)" }}>
+                  <div className="p-2.5 text-xs font-semibold flex justify-between items-center" style={{ backgroundColor: "var(--bg-color)", borderBottom: "1px solid var(--border-color)", color: "var(--text-primary)" }}>
                     <span>Found {previewArticles.length} Articles (Preview Only - Not Yet Saved)</span>
                     <button
                       type="button"
@@ -963,28 +999,28 @@ const DataManagement = () => {
                       disabled={isScraping}
                       className="btn btn-sm btn-primary flex items-center gap-1 text-xs py-1 px-3"
                     >
-                      <Sparkles size={12} />
+                      <Database size={13} />
                       <span>Ingest All to DB</span>
                     </button>
                   </div>
-                  <div style={{ maxHeight: '220px', overflowY: 'auto' }} className="divide-y divide-gray-100">
+                  <div style={{ maxHeight: "220px", overflowY: "auto", backgroundColor: "var(--surface-color-strong)" }}>
                     {previewArticles.map((art, idx) => (
-                      <div key={idx} className="p-2.5 hover:bg-gray-50 text-xs flex flex-col gap-1">
+                      <div key={idx} className="p-2.5 text-xs flex flex-col gap-1 border-b" style={{ borderColor: "var(--border-color)" }}>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-gray-900 truncate">{art.title}</span>
-                          <span className="text-xs bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          <span className="font-semibold truncate" style={{ color: "var(--text-primary)" }}>{art.title}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded whitespace-nowrap font-medium" style={{ backgroundColor: "var(--bg-color)", color: "var(--text-secondary)", border: "1px solid var(--border-color)" }}>
                             {art.source}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-gray-500">
+                        <div className="flex items-center justify-between" style={{ color: "var(--text-muted)" }}>
                           <span>
                             {art.publicationDate ? new Date(art.publicationDate).toLocaleDateString() : 'Date unavailable'}
                             </span>
-                            <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-medium">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "var(--accent-blue)" }}>
                               {art.rawText?.length || 0} chars (Full Body)
                           </span>
                           {art.url && (
-                            <a href={art.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+                            <a href={art.url} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1" style={{ color: "var(--accent-blue)" }}>
                               View link <ExternalLink size={11} />
                             </a>
                           )}
@@ -997,7 +1033,7 @@ const DataManagement = () => {
             </div>
 
             {/* Modal Footer */}
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button 
                 type="button"
                 className="btn btn-secondary text-sm" 
@@ -1031,7 +1067,7 @@ const DataManagement = () => {
                     cursor: (isScraping || isPreviewing) ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Cpu size={16} />}
                   <span>{isScraping ? 'Scraping & Saving...' : 'Scrape & Ingest to Database'}</span>
                 </button>
               </div>
