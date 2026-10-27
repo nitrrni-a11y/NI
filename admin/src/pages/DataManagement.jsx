@@ -339,17 +339,7 @@ const DataManagement = () => {
                 </div>
                 <span>Live Web Scraper</span>
               </h3>
-              <span 
-                className="hero-badge flex items-center gap-1"
-                style={{ 
-                  fontSize: '0.7rem', 
-                  padding: '0.25rem 0.6rem',
-                  fontWeight: 700
-                }}
-              >
-                <Cpu size={12} />
-                <span>AI PIPELINE</span>
-              </span>
+
             </div>
             <p 
               className="text-sm leading-relaxed"
@@ -372,7 +362,7 @@ const DataManagement = () => {
                 cursor: 'pointer'
               }}
             >
-              <Cpu size={16} />
+              <Globe size={16} />
               <span>Scrape Web Data</span>
             </button>
           </div>
@@ -1067,7 +1057,7 @@ const DataManagement = () => {
                     cursor: (isScraping || isPreviewing) ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Cpu size={16} />}
+                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Globe size={16} />}
                   <span>{isScraping ? 'Scraping & Saving...' : 'Scrape & Ingest to Database'}</span>
                 </button>
               </div>
