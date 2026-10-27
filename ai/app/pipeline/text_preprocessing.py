@@ -2,6 +2,7 @@ import re
 import html
 from typing import Dict, Any
 from app.pipeline.schemas import RawDocument, PreprocessedDocument
+from app.pipeline.translation import process_document_language
 
 def preprocess_document(raw_doc: RawDocument) -> PreprocessedDocument:
     text = raw_doc.text if isinstance(raw_doc.text, str) else str(raw_doc.text or "")
@@ -21,9 +22,14 @@ def preprocess_document(raw_doc: RawDocument) -> PreprocessedDocument:
         cleaned = cleaned.strip()
         chars_removed = original_length - len(cleaned)
 
-    return PreprocessedDocument(
+    initial_doc = PreprocessedDocument(
         document_id=raw_doc.document_id,
         text=cleaned,
+        original_text=cleaned,
+        detected_language=getattr(raw_doc, "detected_language", None) or "en",
+        translated_text=getattr(raw_doc, "translated_text", None),
+        processing_text=getattr(raw_doc, "processing_text", None) or cleaned,
+        translation_status=getattr(raw_doc, "translation_status", None) or "not_required",
         metadata={
             "chars_removed": chars_removed,
             "original_length": original_length,
@@ -36,3 +42,6 @@ def preprocess_document(raw_doc: RawDocument) -> PreprocessedDocument:
         published_at=raw_doc.published_at,
         collected_at=raw_doc.collected_at
     )
+
+    # Language detection and conditional translation stage
+    return process_document_language(initial_doc, raw_doc)

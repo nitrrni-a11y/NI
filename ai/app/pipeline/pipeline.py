@@ -122,5 +122,6 @@ def process_batch(batch_req: BatchRequest) -> ProcessBatchResponse:
         documents_processed=len(all_preprocessed),
         claims_extracted=len(all_enriched_claims),
         groups_identified=len(claim_groups),
-        narratives=final_narratives
+        narratives=final_narratives,
+        processed_documents=all_preprocessed
     )

@@ -8,21 +8,9 @@ from dotenv import load_dotenv
 
 from app.pipeline.schemas import ExistingTopic, EntityContext
 from app.pipeline.claim_enrichment import get_model
-from app.pipeline.gemini_utils import generate_with_retry
+from app.pipeline.gemini_utils import generate_with_retry, get_gemini_client
 
 load_dotenv(override=True)
-
-_client = None
-
-def get_gemini_client():
-    global _client
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY not found. Please add it to your .env file.")
-    if _client is None or getattr(_client, "_cached_api_key", None) != api_key:
-        _client = genai.Client(api_key=api_key)
-        _client._cached_api_key = api_key
-    return _client
 
 class GemmaTopicResult(BaseModel):
     topic_name: str = Field(description="The canonical name of the topic. Must exactly match an existing topic if one was reused.")

@@ -60,6 +60,23 @@ const documentSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    detectedLanguage: {
+      type: String,
+      default: 'en',
+    },
+    translatedText: {
+      type: String,
+      default: '',
+    },
+    processingText: {
+      type: String,
+      default: '',
+    },
+    translationStatus: {
+      type: String,
+      enum: ['not_required', 'translated', 'failed', 'skipped', ''],
+      default: 'not_required',
+    },
     institutionId: { type: String, default: '' },
     canonicalUrl: { type: String, default: '' },
     contentHash: { type: String, default: '' },

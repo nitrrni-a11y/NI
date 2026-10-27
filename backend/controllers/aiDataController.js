@@ -228,6 +228,11 @@ const processDocumentsBackground = async (jobId) => {
       const formattedDocs = unprocessedDocs.map(d => ({
         document_id: d._id.toString(),
         text: d.rawText,
+        original_text: d.rawText,
+        detected_language: d.detectedLanguage || undefined,
+        translated_text: d.translatedText || undefined,
+        processing_text: d.processingText || undefined,
+        translation_status: d.translationStatus || undefined,
         source: d.source || 'Unknown',
         source_type: d.sourceType || 'Unknown',
         author: d.author || 'Unknown',
@@ -331,20 +336,53 @@ const processDocumentsBackground = async (jobId) => {
         }
       }
 
-      // Mark processed documents as completed
-      await Document.updateMany(
-        { _id: { $in: docIds } },
-        { 
-          $set: { 
-            processingStatus: 'completed', 
-            processingCompletedAt: new Date(),
-            processingError: ''
-          } 
+      // Persist document language, translation status, and completion
+      let failedDocIds = [];
+      let successDocIds = [];
+
+      if (aiResponse.processed_documents && Array.isArray(aiResponse.processed_documents)) {
+        for (const pDoc of aiResponse.processed_documents) {
+          const isTransFailed = pDoc.translation_status === 'failed';
+          if (isTransFailed) {
+            failedDocIds.push(pDoc.document_id);
+          } else {
+            successDocIds.push(pDoc.document_id);
+          }
+
+          await Document.updateOne(
+            { _id: pDoc.document_id },
+            {
+              $set: {
+                detectedLanguage: pDoc.detected_language || pDoc.detectedLanguage || 'en',
+                translationStatus: pDoc.translation_status || pDoc.translationStatus || 'not_required',
+                processingText: pDoc.processing_text || pDoc.processingText || '',
+                translatedText: pDoc.translated_text || pDoc.translatedText || '',
+                processingStatus: isTransFailed ? 'failed' : 'completed',
+                processingCompletedAt: isTransFailed ? null : new Date(),
+                processingError: isTransFailed ? (pDoc.metadata?.translation_error || 'Translation failed') : ''
+              }
+            }
+          );
         }
-      );
+      } else {
+        successDocIds = docIds.map(id => id.toString());
+        await Document.updateMany(
+          { _id: { $in: docIds } },
+          { 
+            $set: { 
+              processingStatus: 'completed', 
+              processingCompletedAt: new Date(),
+              processingError: ''
+            } 
+          }
+        );
+      }
       
       // Update Job Progress
-      job.processedDocuments += unprocessedDocs.length;
+      job.processedDocuments += successDocIds.length;
+      if (failedDocIds.length > 0) {
+        job.failedDocuments = (job.failedDocuments || 0) + failedDocIds.length;
+      }
       job.newNarrativesAdded += newCount;
       job.existingNarrativesUpdated += updatedCount;
       job.claimsExtracted += claimCount;

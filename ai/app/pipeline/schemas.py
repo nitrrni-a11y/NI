@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Any, Optional
 
 # ============================================================
@@ -6,8 +6,15 @@ from typing import List, Dict, Any, Optional
 # ============================================================
 
 class RawDocument(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     document_id: str = Field(..., description="Unique identifier for the document")
     text: str = Field(..., description="Raw text of the document")
+    original_text: Optional[str] = Field(default=None, alias="originalText", description="Original raw text")
+    detected_language: Optional[str] = Field(default=None, alias="detectedLanguage", description="Detected language code")
+    translated_text: Optional[str] = Field(default=None, alias="translatedText", description="Cached English translation if available")
+    processing_text: Optional[str] = Field(default=None, alias="processingText", description="Text to be processed")
+    translation_status: Optional[str] = Field(default=None, alias="translationStatus", description="Status: not_required, translated, failed, skipped")
     source: str = Field(default="Unknown", description="Source of the document")
     source_type: str = Field(default="Unknown", description="Type of the source")
     author: str = Field(default="Unknown", description="Author of the document")
@@ -15,14 +22,21 @@ class RawDocument(BaseModel):
     collected_at: Optional[str] = Field(default=None, description="Collection date")
 
 class PreprocessedDocument(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     document_id: str
-    text: str
-    metadata: Dict[str, Any]
-    source: str
-    source_type: str
-    author: str
-    published_at: Optional[str]
-    collected_at: Optional[str]
+    text: str  # Kept for backward compatibility, equals processing_text
+    original_text: str = Field(default="", alias="originalText", description="Original cleaned text before translation")
+    detected_language: str = Field(default="en", alias="detectedLanguage", description="Detected language code (e.g. en, hi, te)")
+    translated_text: Optional[str] = Field(default=None, alias="translatedText", description="English translation when applicable")
+    processing_text: str = Field(default="", alias="processingText", description="Text passed to claim extraction")
+    translation_status: str = Field(default="not_required", alias="translationStatus", description="not_required, translated, failed, or skipped")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    source: str = "Unknown"
+    source_type: str = "Unknown"
+    author: str = "Unknown"
+    published_at: Optional[str] = None
+    collected_at: Optional[str] = None
 
 # ============================================================
 # CLAIMS
@@ -122,6 +136,7 @@ class ProcessBatchResponse(BaseModel):
     claims_extracted: int
     groups_identified: int
     narratives: List[FinalNarrative]
+    processed_documents: List[PreprocessedDocument] = Field(default_factory=list)
 
 class ProcessCSVResponse(BaseModel):
     filename: str

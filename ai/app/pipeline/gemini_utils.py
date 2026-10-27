@@ -1,8 +1,25 @@
+import os
 import time
 import random
 import re
 from collections import deque
 from threading import Lock
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_client = None
+
+def get_gemini_client():
+    global _client
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not found. Please add it to your .env file.")
+    if _client is None or getattr(_client, "_cached_api_key", None) != api_key:
+        from google import genai
+        _client = genai.Client(api_key=api_key)
+        _client._cached_api_key = api_key
+    return _client
 
 MAX_RPM = 15
 WINDOW = 60
@@ -44,9 +61,13 @@ def generate_with_retry(
     client,
     model,
     contents,
-    config,
+    config=None,
     max_retries=3
 ):
+    if config is None:
+        from google.genai import types
+        config = types.GenerateContentConfig(temperature=0.1)
+
     for attempt in range(max_retries + 1):
 
         wait_for_rate_limit()

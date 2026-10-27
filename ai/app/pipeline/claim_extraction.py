@@ -87,12 +87,20 @@ def split_into_sentences(text: str) -> List[str]:
 def extract_claims(doc: PreprocessedDocument) -> List[Claim]:
     """
     Extract literal claim spans deterministically from the preprocessed document.
+    Consistently uses processing_text to ensure translated English text is used.
     """
-    if not doc.text.strip():
+    if getattr(doc, "translation_status", None) == "failed":
+        return []
+
+    if getattr(doc, "detected_language", "en") != "en" and getattr(doc, "translation_status", None) != "translated":
+        return []
+
+    target_text = (getattr(doc, "processing_text", None) or doc.text or "").strip()
+    if not target_text:
         return []
 
     # Simple deterministic segmentation
-    raw_sentences = split_into_sentences(doc.text)
+    raw_sentences = split_into_sentences(target_text)
     
     claims = []
     for i, s in enumerate(raw_sentences):
@@ -107,7 +115,9 @@ def extract_claims(doc: PreprocessedDocument) -> List[Claim]:
                     "source_type": doc.source_type,
                     "author": doc.author,
                     "published_at": doc.published_at,
-                    "collected_at": doc.collected_at
+                    "collected_at": doc.collected_at,
+                    "detected_language": getattr(doc, "detected_language", "en"),
+                    "translation_status": getattr(doc, "translation_status", "not_required")
                 }
             ))
 
