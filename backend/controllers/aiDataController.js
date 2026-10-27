@@ -176,6 +176,8 @@ const processDocumentsBackground = async (jobId) => {
     let job = await ProcessingJob.findById(jobId);
     if (!job) return;
 
+    // Batch size allows processing up to 10 documents per AI batch chunk,
+    // while honoring smaller requested limits (e.g., 1, 2, 4, 5).
     const batchSize = 10;
     
     while (true) {
@@ -272,10 +274,11 @@ const processDocumentsBackground = async (jobId) => {
         const aiService = (await import('../services/aiService.js')).default;
         aiResponse = await aiService.processBatch(formattedDocs, formattedExisting, entityContext, formattedTopics);
       } catch (aiErr) {
-        // AI Error
+        // AI Error: Mark only this current sub-batch documents as failed
         await Document.updateMany({ _id: { $in: docIds } }, { $set: { processingStatus: 'failed', processingError: aiErr.message } });
         job.status = 'FAILED';
         job.error = aiErr.message;
+        job.failedDocuments = (job.failedDocuments || 0) + docIds.length;
         job.completedAt = new Date();
         await job.save();
         return;
@@ -391,6 +394,12 @@ const startProcessingJob = async (req, res) => {
       return res.status(400).json({ message: 'A processing job is already running.' });
     }
 
+    // Reset any lingering 'processing' documents from interrupted runs to pending
+    const resetQuery = { processingStatus: 'processing' };
+    if (job.batchId) resetQuery.batchId = job.batchId;
+    if (job.entityId) resetQuery.entityId = job.entityId;
+    await Document.updateMany(resetQuery, { $set: { processingStatus: 'pending' } });
+
     const docQuery = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
     if (job.batchId) docQuery.batchId = job.batchId;
     if (job.entityId) docQuery.entityId = job.entityId;
@@ -406,7 +415,9 @@ const startProcessingJob = async (req, res) => {
 
     // Update job to PROCESSING with new target
     job.status = 'PROCESSING';
+    job.currentRunLimit = limitNum;
     job.requestedDocuments = job.processedDocuments + limitNum;
+    job.failedDocuments = 0;
     job.stopRequested = false;
     job.startedAt = new Date();
     job.error = null;

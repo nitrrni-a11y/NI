@@ -27,6 +27,10 @@ const processingJobSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  currentRunLimit: {
+    type: Number,
+    default: 0
+  },
   failedDocuments: {
     type: Number,
     default: 0

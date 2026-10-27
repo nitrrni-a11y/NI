@@ -56,15 +56,17 @@ CRITICAL RULES:
     client = get_gemini_client()
     try:
         from google.genai import types
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=GemmaTopicResult,
+            temperature=0.1,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        )
         response = generate_with_retry(
             client=client,
-            model = "gemma-4-26b-a4b-it",
+            model="gemma-4-26b-a4b-it",
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GemmaTopicResult,
-                temperature=0.1
-            ),
+            config=config,
         )
         result = GemmaTopicResult.model_validate_json(response.text)
         proposed_name = result.topic_name.strip()

@@ -5,7 +5,7 @@ from sklearn.cluster import AgglomerativeClustering
 
 from app.pipeline.schemas import EnrichedClaim, ClaimGroup
 
-def group_claims(claims: List[EnrichedClaim], distance_threshold: float = 0.5) -> List[ClaimGroup]:
+def group_claims(claims: List[EnrichedClaim], distance_threshold: float = 0.65) -> List[ClaimGroup]:
     if not claims:
         return []
 

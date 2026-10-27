@@ -101,14 +101,16 @@ Strength Score (0 to 1): {analysis.strength}
 
     try:
         from google.genai import types
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=GeminiNewNarrativeResult,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        )
         response = generate_with_retry(
             client=client,
             model="gemini-3.5-flash-lite",
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GeminiNewNarrativeResult,
-            ),
+            config=config,
         )
 
         result = GeminiNewNarrativeResult.model_validate_json(response.text)
@@ -216,14 +218,16 @@ New Incoming Claims That Triggered This Update:
 
     try:
         from google.genai import types
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=GeminiUpdatedNarrativeResult,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        )
         response = generate_with_retry(
             client=client,
             model="gemini-3.5-flash-lite",
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=GeminiUpdatedNarrativeResult,
-            ),
+            config=config,
         )
 
         result = GeminiUpdatedNarrativeResult.model_validate_json(response.text)

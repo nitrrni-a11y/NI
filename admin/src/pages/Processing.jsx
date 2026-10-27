@@ -24,8 +24,14 @@ const Processing = () => {
       setJob(currentJob);
       
       if (currentJob && currentJob.status !== 'PROCESSING') {
-        const remaining = currentJob.totalDocuments - currentJob.processedDocuments;
-        setProcessLimit(remaining > 0 ? remaining : 0);
+        const remaining = Math.max(0, currentJob.totalDocuments - currentJob.processedDocuments);
+        setProcessLimit(prev => {
+          if (prev && prev > 0 && prev <= remaining) return prev;
+          if (currentJob.currentRunLimit && currentJob.currentRunLimit <= remaining && currentJob.currentRunLimit > 0) {
+            return currentJob.currentRunLimit;
+          }
+          return remaining > 0 ? remaining : 0;
+        });
       }
       
       setLoading(false);
@@ -80,8 +86,23 @@ const Processing = () => {
   if (loading) return <div className="p-4">Loading processing status...</div>;
 
   const isProcessing = job?.status === 'PROCESSING';
-  const remainingInBatch = job ? (job.totalDocuments - job.processedDocuments) : 0;
+  const remainingInBatch = job ? Math.max(0, job.totalDocuments - job.processedDocuments) : 0;
   
+  const getRunCounts = () => {
+    if (!job) return { runLimit: 0, completedInRun: 0, runPercent: 0 };
+    const runLimit = job.currentRunLimit > 0 
+      ? job.currentRunLimit 
+      : (job.requestedDocuments > 0 ? Math.min(job.totalDocuments, job.requestedDocuments) : job.totalDocuments);
+    const startCount = job.requestedDocuments > 0 && job.currentRunLimit > 0
+      ? Math.max(0, job.requestedDocuments - job.currentRunLimit)
+      : 0;
+    const completedInRun = Math.max(0, Math.min(runLimit, (job.processedDocuments || 0) - startCount));
+    const runPercent = runLimit > 0 ? Math.min(100, Math.round((completedInRun / runLimit) * 100)) : 0;
+    return { runLimit, completedInRun, runPercent };
+  };
+
+  const { runLimit, completedInRun, runPercent } = getRunCounts();
+
   // Build form for limit
   const limitInput = (
     <div className="mb-4">
@@ -168,12 +189,18 @@ const Processing = () => {
 
         {job && job.status !== 'IDLE' && (
           <div className="mb-6 grid grid-cols-2 gap-4 text-sm text-secondary bg-gray-50 p-4 rounded border">
-            <div><strong>Batch:</strong> {job.batchId || 'Legacy'}</div>
+            <div><strong>Batch ID:</strong> {job.batchId || 'Legacy'}</div>
             <div><strong>Created:</strong> {job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}</div>
-            <div><strong>Total Documents:</strong> {job.totalDocuments}</div>
-            <div><strong>Processed:</strong> {job.processedDocuments} / {job.totalDocuments}</div>
-            <div><strong>Unprocessed:</strong> {remainingInBatch}</div>
-            <div><strong>Status:</strong> {job.status}</div>
+            <div><strong>Total Batch Documents:</strong> {job.totalDocuments}</div>
+            <div><strong>Completed in Batch:</strong> {job.processedDocuments} / {job.totalDocuments}</div>
+            <div><strong>Unprocessed in Batch:</strong> {remainingInBatch}</div>
+            <div><strong>Status:</strong> <span className={`font-semibold ${job.status === 'COMPLETED' ? 'text-success' : job.status === 'FAILED' ? 'text-error' : job.status === 'PROCESSING' ? 'text-info' : 'text-secondary'}`}>{job.status}</span></div>
+            {job.requestedDocuments > 0 && (
+              <div><strong>Target for Run:</strong> {job.requestedDocuments} documents</div>
+            )}
+            {job.failedDocuments > 0 && (
+              <div><strong>Failed in Run:</strong> <span className="text-error font-medium">{job.failedDocuments} documents</span></div>
+            )}
           </div>
         )}
 
@@ -196,12 +223,14 @@ const Processing = () => {
         {isProcessing && (
           <div>
             <p className="font-semibold text-primary mb-2">Processing Documents...</p>
-            <p className="text-secondary mb-4">{job.processedDocuments} / {job.requestedDocuments} requested processed</p>
+            <p className="text-secondary mb-4">
+              {completedInRun} / {runLimit} documents completed for this run ({job.processedDocuments} / {job.totalDocuments} total completed in batch)
+            </p>
             
             <div className="w-full bg-gray-200 rounded-full h-4 mb-4" style={{ backgroundColor: '#e2e8f0', overflow: 'hidden' }}>
               <div 
                 className="bg-primary h-4 rounded-full transition-all duration-500 ease-in-out" 
-                style={{ width: `${job.requestedDocuments > 0 ? (job.processedDocuments / job.requestedDocuments) * 100 : 0}%`, backgroundColor: '#3b82f6' }}
+                style={{ width: `${runPercent}%`, backgroundColor: '#3b82f6' }}
               ></div>
             </div>
             
@@ -227,7 +256,10 @@ const Processing = () => {
             <h3 className="text-success font-semibold flex items-center gap-2 mb-2">
               <CheckCircle size={18} /> Processing Completed Successfully
             </h3>
-            <p className="text-secondary mb-1">{job.processedDocuments} documents processed so far in this batch</p>
+            <p className="text-secondary mb-1">
+              {job.processedDocuments} of {job.totalDocuments} total documents processed in this batch
+              {remainingInBatch > 0 ? ` (${completedInRun} of ${runLimit} processed in latest run, ${remainingInBatch} remaining)` : ' (All documents processed)'}
+            </p>
             <ul className="text-sm text-secondary list-disc pl-5 mt-2 mb-3">
               <li>{job.newNarrativesAdded} new narratives added</li>
               <li>{job.existingNarrativesUpdated} existing narratives updated</li>
@@ -255,7 +287,10 @@ const Processing = () => {
             <h3 className="text-error font-semibold flex items-center gap-2 mb-2">
               <AlertTriangle size={18} /> Processing Failed
             </h3>
-            <p className="text-secondary mb-2">{job.processedDocuments} / {job.totalDocuments} documents processed</p>
+            <p className="text-secondary mb-2">
+              Attempt failed. {job.processedDocuments} of {job.totalDocuments} total documents completed.
+              {job.failedDocuments > 0 && ` (${job.failedDocuments} document${job.failedDocuments > 1 ? 's' : ''} failed in this attempt)`}
+            </p>
             <div className="bg-red-50 p-3 rounded text-sm text-red-800 mb-4 border border-red-100">
               <span className="font-semibold">Reason:</span> {job.error || 'Processing service encountered an error.'}
             </div>
@@ -280,8 +315,9 @@ const Processing = () => {
             <h3 className="text-warning font-semibold flex items-center gap-2 mb-2">
               <XCircle size={18} /> Processing Stopped
             </h3>
-            <p className="text-secondary mb-1">{job.processedDocuments} / {job.requestedDocuments} requested processed</p>
-            <p className="text-sm text-muted mb-4">Stopped by administrator.</p>
+            <p className="text-secondary mb-1">
+              Stopped by administrator. {completedInRun} of {runLimit} requested documents processed in this attempt ({job.processedDocuments} of {job.totalDocuments} total completed in batch).
+            </p>
             
             {remainingInBatch > 0 && (
               <div className="mt-4 pt-4 border-t">
