@@ -11,6 +11,8 @@ from app.pipeline.schemas import (
     BatchRequest,
     ProcessBatchResponse,
     ProcessCSVResponse,
+    YouTubeExtractRequest,
+    YouTubeExtractResponse,
 )
 
 from app.pipeline.pipeline import (
@@ -241,3 +243,40 @@ async def process_csv_endpoint(
             status_code=500,
             detail=str(e)
         )
+
+
+# ============================================================
+# YOUTUBE TRANSCRIPT EXTRACTION
+# ============================================================
+
+@app.post(
+    "/extract/youtube",
+    response_model=YouTubeExtractResponse
+)
+def extract_youtube_endpoint(request: YouTubeExtractRequest):
+    """
+    Extracts manual or auto-generated transcript and accessible metadata from a YouTube video URL.
+    Does NOT invent missing transcripts or use Gemini.
+    """
+    if not request.url or not request.url.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="YouTube URL is required."
+        )
+
+    from app.pipeline.youtube_extractor import extract_youtube_content
+
+    try:
+        data = extract_youtube_content(request.url.strip())
+        return YouTubeExtractResponse(**data)
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=400,
+            detail=str(ve)
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred during YouTube extraction: {e}"
+        )

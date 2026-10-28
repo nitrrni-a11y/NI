@@ -640,3 +640,141 @@ select.add-data-control {
 .transition-colors { transition-property: color, background-color, border-color, text-decoration-color, fill, stroke; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
 .cursor-pointer { cursor: pointer; }
 
+/* --- INGESTION TABS --- */
+.ingestion-tabs {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 0.35rem;
+  background: var(--surface-color-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: fit-content;
+}
+
+.ingestion-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ingestion-tab:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.ingestion-tab.active {
+  background: var(--surface-color-strong);
+  color: var(--accent-blue);
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+/* --- YOUTUBE INGESTION SECTION --- */
+.youtube-input-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.youtube-input-row input {
+  flex: 1;
+}
+
+.extract-btn {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  padding: 0 1.35rem;
+  font-weight: 600;
+}
+
+.youtube-meta-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface-color-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.75rem;
+  background: var(--surface-color-strong);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.badge-auto {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  margin-left: 0.4rem;
+  border-radius: 4px;
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--accent-blue);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.youtube-transcript-textarea {
+  min-height: 300px;
+  max-height: 480px;
+  overflow-y: auto;
+  line-height: 1.65;
+  font-size: 0.95rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .ingestion-tabs {
+    width: 100%;
+  }
+  .ingestion-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.85rem;
+  }
+  .youtube-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .extract-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+

@@ -62,6 +62,29 @@ const aiService = {
       throw new Error(`AI Service CSV parse error: ${errorMsg}`);
     }
   },
+
+  /**
+   * Request YouTube transcript and metadata extraction from Python AI service.
+   */
+  extractYouTubeTranscript: async (url) => {
+    try {
+      const response = await axios.post(
+        `${getAiServiceUrl()}/extract/youtube`,
+        { url },
+        { timeout: 60000 }
+      );
+      return response.data;
+    } catch (error) {
+      let errorMsg = error.message;
+      if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : JSON.stringify(error.response.data.detail);
+      }
+      throw new Error(errorMsg || 'Failed to extract YouTube transcript');
+    }
+  },
 };
 
 export default aiService;
+

@@ -229,4 +229,24 @@ const bulkDeleteDocuments = async (req, res) => {
   }
 };
 
-export { getDocuments, getDocumentById, addDocument, uploadCsv, deleteDocument, bulkDeleteDocuments };
+// @desc    Extract YouTube transcript and metadata
+// @route   POST /api/documents/youtube/extract
+// @access  Private/Admin
+const extractYouTube = async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || !url.trim()) {
+      return res.status(400).json({ message: 'YouTube URL is required' });
+    }
+
+    const aiService = (await import('../services/aiService.js')).default;
+    const result = await aiService.extractYouTubeTranscript(url.trim());
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('[YouTube-Extract-Error]', error.message);
+    return res.status(400).json({ message: error.message || 'Failed to extract YouTube transcript' });
+  }
+};
+
+export { getDocuments, getDocumentById, addDocument, uploadCsv, deleteDocument, bulkDeleteDocuments, extractYouTube };
+

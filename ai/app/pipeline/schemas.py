@@ -143,3 +143,28 @@ class ProcessCSVResponse(BaseModel):
     total_rows: int
     documents: List[RawDocument]
 
+# ============================================================
+# YOUTUBE EXTRACTION
+# ============================================================
+
+class YouTubeExtractRequest(BaseModel):
+    url: str = Field(..., description="YouTube video URL")
+
+class YouTubeExtractResponse(BaseModel):
+    success: bool = True
+    video_id: str
+    url: str
+    title: str = ""
+    author: str = ""
+    publication_date: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    raw_text: str
+    detected_language: str = "en"
+    language_name: str = "English"
+    is_generated: bool = False
+    char_count: int
+    word_count: int
+    estimated_reading_minutes: int
+    source: str = "YouTube"
+    source_type: str = "YouTube Video"
+
