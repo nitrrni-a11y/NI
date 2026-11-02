@@ -267,7 +267,12 @@ def extract_youtube_endpoint(request: YouTubeExtractRequest):
     from app.pipeline.youtube_extractor import extract_youtube_content
 
     try:
-        data = extract_youtube_content(request.url.strip())
+        data = extract_youtube_content(
+            request.url.strip(),
+            extract_transcript=request.extract_transcript,
+            extract_comments=request.extract_comments,
+            max_comments=request.max_comments
+        )
         return YouTubeExtractResponse(**data)
     except ValueError as ve:
         raise HTTPException(

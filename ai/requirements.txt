@@ -18,3 +18,4 @@ google-genai
 python-multipart
 youtube-transcript-api>=0.6.2
 yt-dlp>=2024.3.10
+youtube-comment-downloader>=0.1.84

@@ -1,5 +1,10 @@
 import re
 import logging
+import os
+import json
+import urllib.request
+import urllib.parse
+import urllib.error
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
@@ -168,7 +173,6 @@ def extract_youtube_transcript(video_id: str) -> Dict[str, Any]:
     if not snippets:
         raise ValueError("The extracted transcript for this video is empty.")
 
-    # Combine snippets into clean text preserving sentences and flow
     clean_parts: List[str] = []
     for s in snippets:
         snippet_text = (s.get("text") if isinstance(s, dict) else getattr(s, "text", "")) or ""
@@ -176,14 +180,12 @@ def extract_youtube_transcript(video_id: str) -> Dict[str, Any]:
         if snippet_text:
             clean_parts.append(snippet_text)
 
-
     raw_text = " ".join(clean_parts).strip()
     if not raw_text:
         raise ValueError("The extracted transcript for this video is empty.")
 
     char_count = len(raw_text)
     word_count = len(raw_text.split())
-    # Standard reading speed estimate: ~200 words per minute
     estimated_reading_minutes = max(1, round(word_count / 200))
 
     return {
@@ -197,13 +199,260 @@ def extract_youtube_transcript(video_id: str) -> Dict[str, Any]:
     }
 
 
-def extract_youtube_content(url: str) -> Dict[str, Any]:
+def parse_like_count(votes: Any) -> int:
+    """Safely converts YouTube like count representations (e.g., '1.2K', '3M', '45', '0') to integer."""
+    if not votes:
+        return 0
+    if isinstance(votes, (int, float)):
+        return int(votes)
+    s = str(votes).strip().upper()
+    if not s or s == "0":
+        return 0
+    multiplier = 1
+    if s.endswith("K"):
+        multiplier = 1000
+        s = s[:-1]
+    elif s.endswith("M"):
+        multiplier = 1000000
+        s = s[:-1]
+    elif s.endswith("B"):
+        multiplier = 1000000000
+        s = s[:-1]
+    try:
+        return int(float(s) * multiplier)
+    except Exception:
+        return 0
+
+
+def extract_youtube_comments(canonical_url: str, video_id: str, max_comments: int = 50) -> Dict[str, Any]:
+    """
+    Extracts comments using youtube-comment-downloader without requiring YouTube Data API keys.
+    Retrieves comment text, author, timestamp/date, and like count.
+    Supports configurable maximum comment limits and pagination.
+    Distinguishes clearly between disabled comments, unavailable video, zero comments, and extraction failure.
+    """
+    from youtube_comment_downloader import YoutubeCommentDownloader
+    import requests
+
+    target_limit = max(1, min(int(max_comments or 50), 500))
+    downloader = YoutubeCommentDownloader()
+
+    # 1. Pre-flight check via downloader's session to distinguish playability and disabled comments
+    playability_reason = None
+    comments_disabled = False
+
+    try:
+        resp = downloader.session.get(canonical_url, timeout=20)
+
+        # Check cookie consent redirection if present
+        if "consent" in str(resp.url):
+            from youtube_comment_downloader.downloader import YT_HIDDEN_INPUT_RE, YOUTUBE_CONSENT_URL
+            params = dict(re.findall(YT_HIDDEN_INPUT_RE, resp.text))
+            params.update({"continue": canonical_url, "set_eom": False, "set_ytc": True, "set_apyt": True})
+            resp = downloader.session.post(YOUTUBE_CONSENT_URL, params=params, timeout=20)
+
+        html = resp.text
+
+        # Check video playability status
+        player_match = re.search(r'ytInitialPlayerResponse\s*=\s*({.+?});', html)
+        if player_match:
+            try:
+                player_data = json.loads(player_match.group(1))
+                playability = player_data.get("playabilityStatus", {})
+                status = playability.get("status")
+                if status and status not in ("OK", "LIVE_STREAM_OFFLINE"):
+                    playability_reason = playability.get("reason") or "The requested YouTube video was not found, is private, or has been removed."
+            except Exception:
+                pass
+
+        # Check if comments are disabled via itemSectionRenderer
+        import youtube_comment_downloader.downloader as d_mod
+        data_str = downloader.regex_search(html, d_mod.YT_INITIAL_DATA_RE, default="")
+        if data_str:
+            try:
+                data = json.loads(data_str)
+                item_section = next((s for s in downloader.search_dict(data, "itemSectionRenderer") 
+                                     if s.get("sectionIdentifier") == "comment-item-section"), None)
+                if item_section:
+                    renderer = next(downloader.search_dict(item_section, "continuationItemRenderer"), None)
+                    message_renderer = next(downloader.search_dict(item_section, "messageRenderer"), None)
+                    if not renderer and message_renderer:
+                        comments_disabled = True
+            except Exception:
+                pass
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"[YouTube-Comments] Network error connecting to {canonical_url}: {e}")
+        return {
+            "success": False,
+            "status": "network_error",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": f"Network error connecting to YouTube: {e}"
+        }
+    except Exception as e:
+        logger.warning(f"[YouTube-Comments] Pre-flight check error for {video_id}: {e}")
+
+    # If video is not playable (private, deleted, not found)
+    if playability_reason:
+        return {
+            "success": False,
+            "status": "failed",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": playability_reason
+        }
+
+    # If comments are definitively disabled
+    if comments_disabled:
+        return {
+            "success": False,
+            "status": "disabled",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": "Comments are disabled for this YouTube video."
+        }
+
+    # 2. Extract comments using generator
+    comments: List[Dict[str, Any]] = []
+    limit_reached = False
+    has_more = False
+
+    try:
+        comment_generator = downloader.get_comments_from_url(canonical_url)
+        for c in comment_generator:
+            cid = c.get("cid") or ""
+            raw_text = (c.get("text") or "").strip()
+            if not raw_text:
+                continue
+
+            author = (c.get("author") or "Viewer").strip()
+            author_channel_url = f"https://www.youtube.com/channel/{c.get('channel')}" if c.get("channel") else ""
+
+            # Preserve real publication timestamp if parsed by dateparser, do NOT invent missing dates
+            published_at = None
+            time_parsed = c.get("time_parsed")
+            if time_parsed:
+                try:
+                    from datetime import datetime, timezone
+                    published_at = datetime.fromtimestamp(time_parsed, tz=timezone.utc).isoformat()
+                except Exception:
+                    published_at = None
+
+            like_count = parse_like_count(c.get("votes"))
+
+            comments.append({
+                "id": cid,
+                "text": raw_text,
+                "author": author,
+                "author_channel_url": author_channel_url,
+                "published_at": published_at,
+                "time_relative": c.get("time") or "",
+                "like_count": like_count,
+                "is_reply": bool(c.get("reply", False)),
+                "video_id": video_id
+            })
+
+            if len(comments) >= target_limit:
+                limit_reached = True
+                has_more = True
+                break
+
+    except RuntimeError as rte:
+        err_msg = str(rte)
+        if "Comments disabled" in err_msg or "continuationItemRenderer" in err_msg:
+            return {
+                "success": False,
+                "status": "disabled",
+                "count": 0,
+                "total_retrieved": 0,
+                "has_more": False,
+                "limit_reached": False,
+                "comments": [],
+                "error": "Comments are disabled for this YouTube video."
+            }
+        logger.warning(f"[YouTube-Comments] RuntimeError extracting comments for {video_id}: {err_msg}")
+        return {
+            "success": False,
+            "status": "failed",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": f"Failed to retrieve comments: {err_msg}"
+        }
+    except Exception as e:
+        logger.warning(f"[YouTube-Comments] Failed to extract comments for {video_id}: {e}")
+        return {
+            "success": False,
+            "status": "failed",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": f"Failed to retrieve comments: {e}"
+        }
+
+    # 3. Status resolution
+    if len(comments) == 0:
+        if comments_disabled:
+            return {
+                "success": False,
+                "status": "disabled",
+                "count": 0,
+                "total_retrieved": 0,
+                "has_more": False,
+                "limit_reached": False,
+                "comments": [],
+                "error": "Comments are disabled for this YouTube video."
+            }
+        return {
+            "success": True,
+            "status": "empty",
+            "count": 0,
+            "total_retrieved": 0,
+            "has_more": False,
+            "limit_reached": False,
+            "comments": [],
+            "error": None
+        }
+
+    return {
+        "success": True,
+        "status": "success",
+        "count": len(comments),
+        "total_retrieved": len(comments),
+        "has_more": has_more,
+        "limit_reached": limit_reached,
+        "comments": comments,
+        "error": None
+    }
+
+
+def extract_youtube_content(
+    url: str,
+    extract_transcript: bool = True,
+    extract_comments: bool = False,
+    max_comments: int = 50
+) -> Dict[str, Any]:
     """
     High-level orchestrator:
     1. Validates URL and extracts video ID.
-    2. Retrieves transcript (fails explicitly if transcript unavailable).
-    3. Retrieves video metadata (title, author, publication date).
-    4. Packages into structured dictionary for review/persistence.
+    2. Retrieves video metadata once (shared between transcript & comments).
+    3. Retrieves transcript (if requested).
+    4. Retrieves comments using youtube-comment-downloader (if requested).
+    5. Packages into structured dictionary for review/persistence.
     """
     video_id = extract_video_id(url)
     if not video_id:
@@ -211,13 +460,51 @@ def extract_youtube_content(url: str) -> Dict[str, Any]:
             "Invalid YouTube URL. Please provide a valid YouTube link (e.g., https://www.youtube.com/watch?v=... or https://youtu.be/...)."
         )
 
+    if not extract_transcript and not extract_comments:
+        raise ValueError("At least one extraction option (Transcript or Comments) must be selected.")
+
     canonical_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # 1. Transcript extraction (Mandatory: fails fast if captions unavailable)
-    transcript_info = extract_youtube_transcript(video_id)
-
-    # 2. Metadata extraction (Graceful: empty fields on failure)
+    # 1. Metadata extraction (Graceful: empty fields on failure, shared between transcript & comments)
     metadata = extract_youtube_metadata(canonical_url, video_id)
+
+    # 2. Transcript extraction
+    transcript_info: Optional[Dict[str, Any]] = None
+    transcript_error: Optional[str] = None
+    if extract_transcript:
+        try:
+            transcript_info = extract_youtube_transcript(video_id)
+        except Exception as e:
+            transcript_error = str(e)
+            if not extract_comments:
+                raise ValueError(transcript_error)
+
+    # 3. Comment extraction
+    comments_info: Optional[Dict[str, Any]] = None
+    if extract_comments:
+        comments_info = extract_youtube_comments(canonical_url, video_id, max_comments=max_comments)
+        if not extract_transcript and not (comments_info and comments_info.get("success")):
+            raise ValueError(comments_info.get("error") if comments_info else "Failed to retrieve comments.")
+
+    # 4. Partial failure check
+    if extract_transcript and not transcript_info and extract_comments and not (comments_info and comments_info.get("success")):
+        err_msg = f"Both extractions failed. Transcript: {transcript_error}"
+        if comments_info and comments_info.get("error"):
+            err_msg += f" | Comments: {comments_info.get('error')}"
+        raise ValueError(err_msg)
+
+    transcript_data = {
+        "success": bool(transcript_info),
+        "status": "success" if transcript_info else "failed",
+        "raw_text": transcript_info["raw_text"] if transcript_info else "",
+        "detected_language": transcript_info.get("detected_language", "en") if transcript_info else "en",
+        "language_name": transcript_info.get("language_name", "English") if transcript_info else "English",
+        "is_generated": transcript_info.get("is_generated", False) if transcript_info else False,
+        "char_count": transcript_info.get("char_count", 0) if transcript_info else 0,
+        "word_count": transcript_info.get("word_count", 0) if transcript_info else 0,
+        "estimated_reading_minutes": transcript_info.get("estimated_reading_minutes", 0) if transcript_info else 0,
+        "error": transcript_error
+    } if extract_transcript else None
 
     return {
         "success": True,
@@ -227,13 +514,15 @@ def extract_youtube_content(url: str) -> Dict[str, Any]:
         "author": metadata.get("author") or "",
         "publication_date": metadata.get("publication_date"),
         "duration_seconds": metadata.get("duration_seconds"),
-        "raw_text": transcript_info["raw_text"],
-        "detected_language": transcript_info["detected_language"],
-        "language_name": transcript_info["language_name"],
-        "is_generated": transcript_info["is_generated"],
-        "char_count": transcript_info["char_count"],
-        "word_count": transcript_info["word_count"],
-        "estimated_reading_minutes": transcript_info["estimated_reading_minutes"],
+        "raw_text": transcript_info["raw_text"] if transcript_info else "",
+        "detected_language": transcript_info.get("detected_language", "en") if transcript_info else "en",
+        "language_name": transcript_info.get("language_name", "English") if transcript_info else "English",
+        "is_generated": transcript_info.get("is_generated", False) if transcript_info else False,
+        "char_count": transcript_info.get("char_count", 0) if transcript_info else 0,
+        "word_count": transcript_info.get("word_count", 0) if transcript_info else 0,
+        "estimated_reading_minutes": transcript_info.get("estimated_reading_minutes", 0) if transcript_info else 0,
         "source": "YouTube",
         "source_type": "YouTube Video",
+        "transcript": transcript_data,
+        "comments": comments_info
     }
