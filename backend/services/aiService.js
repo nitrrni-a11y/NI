@@ -64,14 +64,19 @@ const aiService = {
   },
 
   /**
-   * Request YouTube transcript and metadata extraction from Python AI service.
+   * Request YouTube data (transcript, comments, or both) and metadata extraction from Python AI service.
    */
-  extractYouTubeTranscript: async (url) => {
+  extractYouTubeData: async (url, options = {}) => {
     try {
       const response = await axios.post(
         `${getAiServiceUrl()}/extract/youtube`,
-        { url },
-        { timeout: 60000 }
+        { 
+          url,
+          extract_transcript: options.extractTranscript ?? true,
+          extract_comments: options.extractComments ?? false,
+          max_comments: options.maxComments ?? 50
+        },
+        { timeout: 90000 }
       );
       return response.data;
     } catch (error) {
@@ -81,10 +86,16 @@ const aiService = {
           ? error.response.data.detail
           : JSON.stringify(error.response.data.detail);
       }
-      throw new Error(errorMsg || 'Failed to extract YouTube transcript');
+      throw new Error(errorMsg || 'Failed to extract YouTube data');
     }
+  },
+
+  /**
+   * Backward-compatible alias for YouTube extraction.
+   */
+  extractYouTubeTranscript: async function(url, options = {}) {
+    return this.extractYouTubeData(url, options);
   },
 };
 
 export default aiService;
-

@@ -1,6 +1,14 @@
 import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
-import { getDocuments, getDocumentById, addDocument, deleteDocument, bulkDeleteDocuments, extractYouTube } from '../controllers/documentController.js';
+import { 
+  getDocuments, 
+  getDocumentById, 
+  addDocument, 
+  deleteDocument, 
+  bulkDeleteDocuments, 
+  extractYouTube,
+  ingestYouTube
+} from '../controllers/documentController.js';
 import multer from 'multer';
 
 const router = express.Router();
@@ -11,6 +19,7 @@ router.route('/')
   .post(protect, admin, addDocument);
 
 router.post('/youtube/extract', protect, admin, extractYouTube);
+router.post('/youtube/ingest', protect, admin, ingestYouTube);
 
 router.post('/upload', protect, admin, upload.single('file'), async (req, res, next) => {
   const { uploadCsv } = await import('../controllers/documentController.js');

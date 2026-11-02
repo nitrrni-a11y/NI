@@ -149,6 +149,9 @@ class ProcessCSVResponse(BaseModel):
 
 class YouTubeExtractRequest(BaseModel):
     url: str = Field(..., description="YouTube video URL")
+    extract_transcript: bool = Field(default=True, description="Whether to extract video transcript")
+    extract_comments: bool = Field(default=False, description="Whether to extract video comments")
+    max_comments: int = Field(default=50, description="Maximum number of comments to retrieve")
 
 class YouTubeExtractResponse(BaseModel):
     success: bool = True
@@ -158,13 +161,14 @@ class YouTubeExtractResponse(BaseModel):
     author: str = ""
     publication_date: Optional[str] = None
     duration_seconds: Optional[int] = None
-    raw_text: str
+    raw_text: str = ""
     detected_language: str = "en"
     language_name: str = "English"
     is_generated: bool = False
-    char_count: int
-    word_count: int
-    estimated_reading_minutes: int
+    char_count: int = 0
+    word_count: int = 0
+    estimated_reading_minutes: int = 0
     source: str = "YouTube"
     source_type: str = "YouTube Video"
-
+    transcript: Optional[Dict[str, Any]] = None
+    comments: Optional[Dict[str, Any]] = None

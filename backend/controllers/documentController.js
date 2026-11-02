@@ -68,6 +68,7 @@ const getDocumentById = async (req, res) => {
 
 // @desc    Add new document
 // @route   POST /api/documents
+// @access  Private/Admin
 const addDocument = async (req, res) => {
   const { 
     title, rawText, source, sourceType, url, 
@@ -229,24 +230,92 @@ const bulkDeleteDocuments = async (req, res) => {
   }
 };
 
-// @desc    Extract YouTube transcript and metadata
+// @desc    Extract YouTube transcript, comments, or both
 // @route   POST /api/documents/youtube/extract
 // @access  Private/Admin
 const extractYouTube = async (req, res) => {
   try {
-    const { url } = req.body;
+    const { 
+      url,
+      extractTranscript = true,
+      extractComments = false,
+      maxComments = 50
+    } = req.body;
+
     if (!url || !url.trim()) {
       return res.status(400).json({ message: 'YouTube URL is required' });
     }
 
-    const aiService = (await import('../services/aiService.js')).default;
-    const result = await aiService.extractYouTubeTranscript(url.trim());
+    if (!extractTranscript && !extractComments) {
+      return res.status(400).json({ message: 'At least one extraction option (Transcript or Comments) must be selected.' });
+    }
+
+    const youtubeService = (await import('../services/youtubeService.js')).default;
+    const result = await youtubeService.extractYouTubeData({
+      url: url.trim(),
+      extractTranscript: Boolean(extractTranscript),
+      extractComments: Boolean(extractComments),
+      maxComments: Number(maxComments) || 50
+    });
+
     return res.status(200).json(result);
   } catch (error) {
     console.error('[YouTube-Extract-Error]', error.message);
-    return res.status(400).json({ message: error.message || 'Failed to extract YouTube transcript' });
+    return res.status(400).json({ message: error.message || 'Failed to extract selected YouTube data' });
   }
 };
 
-export { getDocuments, getDocumentById, addDocument, uploadCsv, deleteDocument, bulkDeleteDocuments, extractYouTube };
+// @desc    Ingest extracted YouTube data (transcript, comments, or both) into MongoDB Document collection
+// @route   POST /api/documents/youtube/ingest
+// @access  Private/Admin
+const ingestYouTube = async (req, res) => {
+  try {
+    const {
+      entityId,
+      entity_id,
+      videoId,
+      videoUrl,
+      videoTitle,
+      videoAuthor,
+      videoPublicationDate,
+      transcript,
+      comments
+    } = req.body;
 
+    const targetEntityId = entityId || entity_id;
+    if (!targetEntityId) {
+      return res.status(400).json({ message: 'Entity ID is required' });
+    }
+    if (!videoId) {
+      return res.status(400).json({ message: 'Video ID is required' });
+    }
+
+    const youtubeService = (await import('../services/youtubeService.js')).default;
+    const result = await youtubeService.ingestYouTubeData({
+      entityId: targetEntityId,
+      videoId,
+      videoUrl,
+      videoTitle,
+      videoAuthor,
+      videoPublicationDate,
+      transcript,
+      comments
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    console.error('[YouTube-Ingest-Error]', error.message);
+    return res.status(400).json({ message: error.message || 'Failed to ingest YouTube data' });
+  }
+};
+
+export { 
+  getDocuments, 
+  getDocumentById, 
+  addDocument, 
+  uploadCsv, 
+  deleteDocument, 
+  bulkDeleteDocuments, 
+  extractYouTube,
+  ingestYouTube
+};
