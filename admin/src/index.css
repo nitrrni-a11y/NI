@@ -748,7 +748,8 @@ select.add-data-control {
   resize: vertical;
 }
 
-.spin {
+.spin,
+.animate-spin {
   animation: spin 1s linear infinite;
 }
 

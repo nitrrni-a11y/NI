@@ -1,7 +1,8 @@
 import scraperService from '../services/scraperService.js';
+import gdeltService from '../services/gdeltService.js';
 import Entity from '../models/Entity.js';
 
-// @desc    Scrape news articles from web and ingest into Document collection
+// @desc    Scrape news articles from web (Google News RSS or GDELT) and ingest into Document collection
 // @route   POST /api/scraper/scrape
 // @access  Private/Admin
 export const scrapeAndIngestNews = async (req, res) => {
@@ -13,7 +14,8 @@ export const scrapeAndIngestNews = async (req, res) => {
       timeframe = '30d', 
       customStartDate, 
       customEndDate, 
-      limit = 25 
+      limit = 25,
+      source = 'rss'
     } = req.body;
 
     const targetEntityId = entityId || entity_id;
@@ -34,14 +36,26 @@ export const scrapeAndIngestNews = async (req, res) => {
       }
     }
 
-    const result = await scraperService.scrapeAndIngest({
-      entityId: targetEntityId,
-      query: searchQuery,
-      timeframe,
-      customStartDate,
-      customEndDate,
-      limit: Math.min(Number(limit) || 25, 100)
-    });
+    let result;
+    if (source === 'gdelt') {
+      result = await gdeltService.scrapeAndIngestGdelt({
+        entityId: targetEntityId,
+        query: searchQuery,
+        timeframe,
+        customStartDate,
+        customEndDate,
+        limit: Math.min(Number(limit) || 25, 100)
+      });
+    } else {
+      result = await scraperService.scrapeAndIngest({
+        entityId: targetEntityId,
+        query: searchQuery,
+        timeframe,
+        customStartDate,
+        customEndDate,
+        limit: Math.min(Number(limit) || 25, 100)
+      });
+    }
 
     res.status(201).json(result);
   } catch (error) {
@@ -62,7 +76,8 @@ export const previewNews = async (req, res) => {
       timeframe = '30d', 
       customStartDate, 
       customEndDate, 
-      limit = 10 
+      limit = 10,
+      source = 'rss'
     } = req.body;
 
     let searchQuery = inputQuery ? inputQuery.trim() : '';
@@ -79,16 +94,29 @@ export const previewNews = async (req, res) => {
       return res.status(400).json({ message: 'Search query is required' });
     }
 
-    const articles = await scraperService.fetchGoogleNewsArticles({
-      query: searchQuery,
-      timeframe,
-      customStartDate,
-      customEndDate,
-      limit: Math.min(Number(limit) || 10, 50)
-    });
+    let articles;
+    if (source === 'gdelt') {
+      articles = await gdeltService.previewGdeltArticles({
+        query: searchQuery,
+        timeframe,
+        customStartDate,
+        customEndDate,
+        limit: Math.min(Number(limit) || 10, 50),
+        entityId: entityId || entity_id
+      });
+    } else {
+      articles = await scraperService.fetchGoogleNewsArticles({
+        query: searchQuery,
+        timeframe,
+        customStartDate,
+        customEndDate,
+        limit: Math.min(Number(limit) || 10, 50)
+      });
+    }
 
     res.json({
       success: true,
+      source: source === 'gdelt' ? 'gdelt' : 'rss',
       count: articles.length,
       articles
     });

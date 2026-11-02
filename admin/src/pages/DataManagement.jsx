@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { 
   Search, PlusCircle, Database, Trash2, Upload, FileText, 
   ChevronLeft, ChevronRight, Globe, Calendar, Clock, Cpu, 
-  CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight 
+  CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight, Rss, Copy, Check 
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
@@ -27,11 +27,37 @@ const DataManagement = () => {
 
   const [selectedDocs, setSelectedDocs] = useState(new Set());
   const [viewDoc, setViewDoc] = useState(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  const handleCopyUrl = async (url) => {
+    if (!url) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        throw new Error('Clipboard API not available');
+      }
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = url;
+      el.setAttribute('readonly', '');
+      el.style.position = 'absolute';
+      el.style.left = '-9999px';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null);
 
   // Web Scraper states
   const [showScraperModal, setShowScraperModal] = useState(false);
+  const [scraperSource, setScraperSource] = useState('rss');
   const [scraperQuery, setScraperQuery] = useState('');
   const [timeframe, setTimeframe] = useState('30d');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -43,6 +69,87 @@ const DataManagement = () => {
   const [previewArticles, setPreviewArticles] = useState(null);
   const [scraperResult, setScraperResult] = useState(null);
   const [scraperError, setScraperError] = useState(null);
+
+  const modalBodyRef = useRef(null);
+  const scraperProgressRef = useRef(null);
+  const scraperResultRef = useRef(null);
+  const scraperErrorRef = useRef(null);
+  const userScrolledUpRef = useRef(false);
+
+  const handleModalBodyScroll = () => {
+    const container = modalBodyRef.current;
+    if (!container) return;
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    if (!isNearBottom && isScraping) {
+      userScrolledUpRef.current = true;
+    }
+  };
+
+  // Auto-scroll modal container to loading/progress indicator when scraping starts
+  useEffect(() => {
+    if (isScraping && modalBodyRef.current) {
+      userScrolledUpRef.current = false;
+      const timer = setTimeout(() => {
+        const container = modalBodyRef.current;
+        const progressEl = scraperProgressRef.current;
+        if (container) {
+          if (progressEl) {
+            const containerRect = container.getBoundingClientRect();
+            const progressRect = progressEl.getBoundingClientRect();
+            const targetScrollTop = container.scrollTop + (progressRect.top - containerRect.top) - 20;
+            container.scrollTo({
+              top: Math.max(0, targetScrollTop),
+              behavior: 'smooth'
+            });
+          } else {
+            container.scrollTo({
+              top: container.scrollHeight,
+              behavior: 'smooth'
+            });
+          }
+        }
+      }, 80);
+      return () => clearTimeout(timer);
+    }
+  }, [isScraping]);
+
+  useEffect(() => {
+    if (scraperResult && scraperResultRef.current && modalBodyRef.current) {
+      const timer = setTimeout(() => {
+        const containerEl = modalBodyRef.current;
+        const resultEl = scraperResultRef.current;
+        if (containerEl && resultEl) {
+          const containerRect = containerEl.getBoundingClientRect();
+          const resultRect = resultEl.getBoundingClientRect();
+          const targetScrollTop = containerEl.scrollTop + (resultRect.top - containerRect.top) - 16;
+          containerEl.scrollTo({
+            top: Math.max(0, targetScrollTop),
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [scraperResult]);
+
+  useEffect(() => {
+    if (scraperError && scraperErrorRef.current && modalBodyRef.current) {
+      const timer = setTimeout(() => {
+        const containerEl = modalBodyRef.current;
+        const errorEl = scraperErrorRef.current;
+        if (containerEl && errorEl) {
+          const containerRect = containerEl.getBoundingClientRect();
+          const errorRect = errorEl.getBoundingClientRect();
+          const targetScrollTop = containerEl.scrollTop + (errorRect.top - containerRect.top) - 16;
+          containerEl.scrollTo({
+            top: Math.max(0, targetScrollTop),
+            behavior: 'smooth'
+          });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [scraperError]);
   
   const fileInputRef = React.useRef(null);
 
@@ -216,6 +323,7 @@ const DataManagement = () => {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
+        source: scraperSource,
 
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
@@ -246,6 +354,7 @@ const DataManagement = () => {
       return;
     }
     setIsScraping(true);
+    userScrolledUpRef.current = false;
     setScraperError(null);
     setScraperResult(null);
 
@@ -254,6 +363,7 @@ const DataManagement = () => {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
+        source: scraperSource,
 
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
@@ -628,40 +738,78 @@ const DataManagement = () => {
 
       {/* View Document Modal */}
       {viewDoc && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.5rem' }}>
-          <div style={{ backgroundColor: 'var(--surface-color)', borderRadius: '8px', boxShadow: 'var(--shadow-lg)', width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            
+        <div 
+          onClick={() => setViewDoc(null)}
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(15, 23, 42, 0.75)', 
+            backdropFilter: 'blur(4px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1.5rem' 
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              backgroundColor: 'var(--surface-color-strong, #ffffff)', 
+              borderRadius: '12px', 
+              border: '1px solid var(--border-color)', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', 
+              width: '100%', 
+              maxWidth: '820px', 
+              maxHeight: '90vh', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden' 
+            }}
+          >
             {/* Header */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Document Details</h2>
+              <div className="flex items-center gap-2.5">
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-blue)' }}>
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Document Details</h2>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Metadata and extracted full body text</p>
+                </div>
+              </div>
               <button 
                 onClick={() => setViewDoc(null)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--text-muted)', lineHeight: 1 }}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
+                title="Close"
               >
-                &times;
+                <X size={20} />
               </button>
             </div>
             
             {/* Scrollable Content */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, backgroundColor: 'var(--surface-color-strong, #ffffff)' }}>
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Source</div>
-                  <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{viewDoc.source || 'Not available'}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{viewDoc.source || 'Not available'}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Author</div>
-                  <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{viewDoc.author || 'Not available'}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{viewDoc.author || 'Not available'}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Published Date</div>
-                  <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                     {viewDoc.publicationDate ? new Date(viewDoc.publicationDate).toLocaleDateString() : 'Not available'}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Collected Timestamp</div>
-                  <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                     {viewDoc.collectedDate ? new Date(viewDoc.collectedDate).toLocaleString() : 'Not available'}
                   </div>
                 </div>
@@ -677,28 +825,71 @@ const DataManagement = () => {
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Document ID</div>
-                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{viewDoc._id}</div>
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{viewDoc._id}</div>
                 </div>
+
+                {/* Source Article URL Actions */}
                 {viewDoc.url && (
                   <div style={{ gridColumn: 'span 2' }}>
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.25rem' }}>Source Article URL</div>
-                    <a 
-                      href={viewDoc.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      style={{ color: '#2563eb', fontSize: '0.875rem', wordBreak: 'break-all', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
-                      className="hover:underline"
-                    >
-                      {viewDoc.url}
-                      <ExternalLink size={14} />
-                    </a>
+                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      Source Article URL
+                    </div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <a 
+                        href={viewDoc.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn btn-sm flex items-center gap-1.5 font-medium shadow-sm"
+                        style={{
+                          backgroundColor: 'var(--accent-blue)',
+                          color: '#ffffff',
+                          padding: '0.45rem 0.95rem',
+                          borderRadius: '6px',
+                          textDecoration: 'none',
+                          fontSize: '0.8125rem',
+                          display: 'inline-flex'
+                        }}
+                      >
+                        <ExternalLink size={14} />
+                        <span>Open Link</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopyUrl(viewDoc.url)}
+                        className="btn btn-sm flex items-center gap-1.5 font-medium transition-all"
+                        style={{
+                          backgroundColor: copiedUrl ? 'rgba(16, 185, 129, 0.15)' : 'var(--bg-color)',
+                          borderColor: copiedUrl ? 'var(--status-success)' : 'var(--border-color)',
+                          color: copiedUrl ? 'var(--status-success)' : 'var(--text-primary)',
+                          border: '1px solid',
+                          padding: '0.45rem 0.95rem',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '0.8125rem'
+                        }}
+                        title="Copy article URL to clipboard"
+                      >
+                        {copiedUrl ? (
+                          <>
+                            <Check size={14} className="text-emerald-500" />
+                            <span style={{ fontWeight: 600 }}>Link Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={14} />
+                            <span>Copy Link</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
               
               <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
                 <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 600, marginBottom: '0.75rem' }}>Full Content</div>
-                <div style={{ padding: '1.25rem', borderRadius: '6px', backgroundColor: 'var(--bg-color)', border: '1px solid var(--border-color)', whiteSpace: 'pre-wrap', color: 'var(--text-primary)', fontSize: '0.9375rem', lineHeight: 1.6 }}>
+                <div style={{ padding: '1.25rem', borderRadius: '8px', backgroundColor: 'var(--bg-color)', border: '1px solid var(--border-color)', whiteSpace: 'pre-wrap', color: 'var(--text-primary)', fontSize: '0.9375rem', lineHeight: 1.6 }}>
                   {viewDoc.rawText}
                 </div>
               </div>
@@ -706,7 +897,7 @@ const DataManagement = () => {
             
             {/* Footer */}
             <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-color)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary" onClick={() => setViewDoc(null)}>
+              <button className="btn btn-secondary text-sm" onClick={() => setViewDoc(null)}>
                 Close
               </button>
             </div>
@@ -717,7 +908,7 @@ const DataManagement = () => {
       {/* Delete Confirmation Modal */}
       {deleteConfirmation && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.5rem' }}>
-          <div style={{ backgroundColor: 'var(--surface-color)', borderRadius: '8px', boxShadow: 'var(--shadow-lg)', width: '100%', maxWidth: '450px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ backgroundColor: 'var(--surface-color-strong, #ffffff)', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', width: '100%', maxWidth: '450px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             
             <div style={{ padding: '1.5rem', textAlign: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#fef2f2', margin: '0 auto 1rem auto' }}>
@@ -794,7 +985,7 @@ const DataManagement = () => {
                 <div>
                   <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Live Web Scraper & Intelligence Ingestion</h2>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                    Fetch real news articles with publisher source and publication timestamps across flexible timeframes.
+                    Fetch real news articles via Google News RSS or GDELT Global Knowledge Graph with full-text article extraction.
                   </p>
                 </div>
               </div>
@@ -809,7 +1000,7 @@ const DataManagement = () => {
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div ref={modalBodyRef} onScroll={handleModalBodyScroll} style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {/* Target Entity Indicator */}
               <div className="flex items-center justify-between p-3 rounded-lg text-sm" style={{ backgroundColor: "rgba(59, 130, 246, 0.1)", border: "1px solid rgba(59, 130, 246, 0.25)", color: "var(--text-primary)" }}>
                 <div className="flex items-center gap-2">
@@ -819,6 +1010,90 @@ const DataManagement = () => {
                 <span className="text-xs font-mono px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: "rgba(59, 130, 246, 0.2)", color: "var(--accent-blue)" }}>
                   {selectedEntity?.entityId}
                 </span>
+              </div>
+
+              {/* Data Scraping Source Selector */}
+              <div>
+                <label className="block text-sm font-semibold mb-1.5" style={{ color: "var(--text-primary)" }}>
+                  Select Intelligence Source
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScraperSource('rss');
+                      setPreviewArticles(null);
+                      setScraperResult(null);
+                      setScraperError(null);
+                    }}
+                    className="p-3 rounded-xl border text-left transition-all flex items-start gap-3"
+                    style={{
+                      backgroundColor: scraperSource === 'rss' ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-color)',
+                      borderColor: scraperSource === 'rss' ? 'var(--accent-blue)' : 'var(--border-color)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      backgroundColor: scraperSource === 'rss' ? 'var(--accent-blue)' : 'rgba(255, 255, 255, 0.05)',
+                      color: scraperSource === 'rss' ? '#ffffff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <Rss size={18} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold" style={{ color: scraperSource === 'rss' ? 'var(--accent-blue)' : 'var(--text-primary)' }}>
+                        Google News RSS
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        Indexed publisher feeds & Google decoder
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScraperSource('gdelt');
+                      setPreviewArticles(null);
+                      setScraperResult(null);
+                      setScraperError(null);
+                    }}
+                    className="p-3 rounded-xl border text-left transition-all flex items-start gap-3"
+                    style={{
+                      backgroundColor: scraperSource === 'gdelt' ? 'rgba(59, 130, 246, 0.12)' : 'var(--bg-color)',
+                      borderColor: scraperSource === 'gdelt' ? 'var(--accent-blue)' : 'var(--border-color)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      backgroundColor: scraperSource === 'gdelt' ? 'var(--accent-blue)' : 'rgba(255, 255, 255, 0.05)',
+                      color: scraperSource === 'gdelt' ? '#ffffff' : 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <Globe size={18} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold" style={{ color: scraperSource === 'gdelt' ? 'var(--accent-blue)' : 'var(--text-primary)' }}>
+                        GDELT Project
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        Global DOC 2.0 API & full article extraction
+                      </div>
+                    </div>
+                  </button>
+                </div>
               </div>
 
               {/* Search Keywords */}
@@ -835,7 +1110,7 @@ const DataManagement = () => {
                   style={{ borderColor: '#cbd5e1', backgroundColor: 'var(--surface-color-strong, #111827)', color: 'var(--text-primary)' }}
                 />
                 <span className="text-xs mt-1 block" style={{ color: "var(--text-muted)" }}>
-                  Keywords used to query Google News RSS feeds and online publications.
+                  {scraperSource === 'gdelt' ? 'Keywords queried against GDELT Global Knowledge Graph DOC API with deep article extraction.' : 'Keywords used to query Google News RSS feeds and online publications.'}
                 </span>
               </div>
 
@@ -928,33 +1203,116 @@ const DataManagement = () => {
 
               {/* Error Message */}
               {scraperError && (
-                <div className="p-3 rounded-lg border text-sm flex items-start gap-2" style={{ backgroundColor: "rgba(239, 68, 68, 0.12)", borderColor: "rgba(239, 68, 68, 0.3)", color: "#f87171" }}>
+                <div ref={scraperErrorRef} className="p-3 rounded-lg border text-sm flex items-start gap-2" style={{ backgroundColor: "rgba(239, 68, 68, 0.12)", borderColor: "rgba(239, 68, 68, 0.3)", color: "#f87171" }}>
                   <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
                   <span>{scraperError}</span>
                 </div>
               )}
 
+              
+              {/* Progress Feedback Banner when scraping */}
+              {isScraping && (
+                <div 
+                  ref={scraperProgressRef}
+                  className="p-4 rounded-xl border flex items-center gap-3.5" 
+                  style={{ 
+                    backgroundColor: "rgba(59, 130, 246, 0.08)", 
+                    borderColor: "rgba(59, 130, 246, 0.25)", 
+                    color: "var(--text-primary)" 
+                  }}
+                >
+                  <div style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-blue)',
+                    flexShrink: 0
+                  }}>
+                    <Loader2 size={20} className="animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--accent-blue)" }}>
+                      <span>{scraperSource === 'gdelt' ? 'Scraping GDELT Global Intelligence...' : 'Fetching Google News RSS Feeds...'}</span>
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
+                      {`Searching and extracting new unique articles through multiple pages until target of ${scrapeLimit} new documents is reached. Please wait...`}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Scraper Result Notification */}
               {scraperResult && (
-                <div className="p-4 rounded-xl border flex flex-col gap-3" style={{ backgroundColor: "rgba(5, 150, 105, 0.1)", borderColor: "rgba(5, 150, 105, 0.3)", color: "var(--text-primary)" }}>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
-                    <span className="font-bold text-base">{scraperResult.message}</span>
+                <div ref={scraperResultRef} className="p-4 rounded-xl border flex flex-col gap-3" style={{ backgroundColor: "rgba(5, 150, 105, 0.1)", borderColor: "rgba(5, 150, 105, 0.3)", color: "var(--text-primary)" }}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={20} className={scraperResult.targetReached !== false ? "text-emerald-500 shrink-0" : "text-amber-500 shrink-0"} />
+                      <span className="font-bold text-base">{scraperResult.message}</span>
+                    </div>
+                    {scraperResult.targetRequested && (
+                      <span 
+                        className="px-2.5 py-1 rounded-full text-xs font-bold"
+                        style={{
+                          backgroundColor: scraperResult.targetReached ? "rgba(5, 150, 105, 0.2)" : "rgba(245, 158, 11, 0.2)",
+                          color: scraperResult.targetReached ? "var(--accent-green)" : "#f59e0b",
+                          border: `1px solid ${scraperResult.targetReached ? "rgba(5, 150, 105, 0.4)" : "rgba(245, 158, 11, 0.4)"}`
+                        }}
+                      >
+                        {scraperResult.targetReached 
+                          ? `Target Reached (${scraperResult.savedCount}/${scraperResult.targetRequested})` 
+                          : (scraperResult.savedCount > 0 
+                            ? `Partial: ${scraperResult.savedCount} of ${scraperResult.targetRequested} Available` 
+                            : `0 of ${scraperResult.targetRequested} Available`)}
+                      </span>
+                    )}
                   </div>
-                  <div className="grid grid-cols-3 gap-2 p-3 rounded-lg text-center" style={{ backgroundColor: "var(--bg-color)", border: "1px solid var(--border-color)" }}>
-                    <div>
-                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Total Found</div>
-                      <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{scraperResult.totalFound}</div>
+                  {scraperResult.extractedCount !== undefined ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 rounded-lg text-center" style={{ backgroundColor: "var(--bg-color)", border: "1px solid var(--border-color)" }}>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Discovered</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{scraperResult.totalFound}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "var(--accent-blue)" }}>Extracted</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--accent-blue)" }}>{scraperResult.extractedCount}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "var(--accent-green)" }}>New Saved</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--accent-green)" }}>{scraperResult.savedCount}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Duplicates</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>{scraperResult.skippedDuplicates}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Irrelevant</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>{scraperResult.irrelevantSkipped || 0}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase font-semibold" style={{ color: "#f87171" }}>Failed</div>
+                        <div className="text-lg font-bold" style={{ color: "#f87171" }}>{scraperResult.extractionFailures || 0}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--accent-green)" }}>New Saved</div>
-                      <div className="text-lg font-bold" style={{ color: "var(--accent-green)" }}>{scraperResult.savedCount}</div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 p-3 rounded-lg text-center" style={{ backgroundColor: "var(--bg-color)", border: "1px solid var(--border-color)" }}>
+                      <div>
+                        <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Total Found</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-primary)" }}>{scraperResult.totalFound}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase font-semibold" style={{ color: "var(--accent-green)" }}>New Saved</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--accent-green)" }}>{scraperResult.savedCount}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Duplicates Skipped</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>{scraperResult.skippedDuplicates}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-xs uppercase font-semibold" style={{ color: "var(--text-muted)" }}>Duplicates Skipped</div>
-                      <div className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>{scraperResult.skippedDuplicates}</div>
-                    </div>
-                  </div>
+                  )}
                   {scraperResult.batchId && (
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -1006,8 +1364,8 @@ const DataManagement = () => {
                           <span>
                             {art.publicationDate ? new Date(art.publicationDate).toLocaleDateString() : 'Date unavailable'}
                             </span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: "rgba(59, 130, 246, 0.15)", color: "var(--accent-blue)" }}>
-                              {art.rawText?.length || 0} chars (Full Body)
+                            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: art.hasFullText ? "rgba(16, 185, 129, 0.15)" : "rgba(234, 179, 8, 0.15)", color: art.hasFullText ? "var(--status-success, #10b981)" : "var(--status-warning, #eab308)" }}>
+                              {art.hasFullText ? `${art.rawText?.length || 0} chars (Full Text)` : 'Snippet Only'}
                           </span>
                           {art.url && (
                             <a href={art.url} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1" style={{ color: "var(--accent-blue)" }}>
@@ -1040,7 +1398,7 @@ const DataManagement = () => {
                   className="btn btn-secondary text-sm flex items-center gap-2"
                   style={{ cursor: 'pointer' }}
                 >
-                  {isPreviewing ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                  {isPreviewing ? <Loader2 size={16} className="animate-spin" style={{ animation: "spin 1s linear infinite" }} /> : <Search size={16} />}
                   <span>{isPreviewing ? 'Finding Feeds...' : 'Preview Articles'}</span>
                 </button>
                 <button
@@ -1054,11 +1412,11 @@ const DataManagement = () => {
                     border: 'none',
                     padding: '0.6rem 1.25rem',
                     borderRadius: '6px',
-                    cursor: (isScraping || isPreviewing) ? 'not-allowed' : 'pointer'
+                    cursor: (isScraping || isPreviewing) ? 'not-allowed' : 'pointer', opacity: (isScraping || isPreviewing) ? 0.75 : 1, transition: 'all 0.2s ease'
                   }}
                 >
-                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Globe size={16} />}
-                  <span>{isScraping ? 'Scraping & Saving...' : 'Scrape & Ingest to Database'}</span>
+                  {isScraping ? <Loader2 size={16} className="animate-spin" style={{ animation: "spin 1s linear infinite" }} /> : <Globe size={16} />}
+                  <span>{isScraping ? 'Scraping & Saving...' : `Scrape & Ingest (${scraperSource === 'gdelt' ? 'GDELT' : 'RSS'})`}</span>
                 </button>
               </div>
             </div>

@@ -3,7 +3,7 @@ import Document from '../models/Document.js';
 import Entity from '../models/Entity.js';
 import ProcessingJob from '../models/ProcessingJob.js';
 import ScrapeJob from '../models/InstitutionalScrapeJob.js';
-import { extractOfficial, extractGdelt, hash, normalizeUrl } from '../services/institutionScraper.js';
+import { extractOfficial, hash, normalizeUrl } from '../services/institutionScraper.js';
 import { processDocumentsBackground } from './aiDataController.js';
 
 const INSTITUTION = { institutionId: 'nit-raipur', entityId: 'ENT_45528e0f', name: 'National Institute of Technology Raipur' };
@@ -17,7 +17,25 @@ async function persistRecords(records, job, batchId, entityId) {
     const content = String(record.text || '').trim(); const contentHash = hash(content || `${record.title}\n${canonicalUrl}`);
     const prev = await Document.findOne({ institutionId: INSTITUTION.institutionId, canonicalUrl });
     if (!prev) {
-      await Document.create({ entityId, institutionId: INSTITUTION.institutionId, title: record.title || '', rawText: content || record.title || canonicalUrl, source: record.metadata?.publisher || (record.metadata?.provenance === 'GDELT' ? 'GDELT' : 'NIT Raipur'), sourceType: record.metadata?.provenance === 'GDELT' ? 'external_news' : 'official_website', author: record.metadata?.publisher || 'Unknown', url: record.url, canonicalUrl, publicationDate: record.publishedAt || null, collectedDate: new Date(), lastCollectedAt: new Date(), contentHash, metadata: { ...(record.metadata || {}), documentType: record.documentType || 'document' }, extractionStatus: record.extractionStatus, processingStatus: content ? 'pending' : 'not_processed', batchId: content ? batchId : '' });
+      await Document.create({ 
+        entityId, 
+        institutionId: INSTITUTION.institutionId, 
+        title: record.title || '', 
+        rawText: content || record.title || canonicalUrl, 
+        source: record.metadata?.publisher || 'NIT Raipur', 
+        sourceType: 'official_website', 
+        author: 'Unknown', 
+        url: record.url, 
+        canonicalUrl, 
+        publicationDate: record.publishedAt || null, 
+        collectedDate: new Date(), 
+        lastCollectedAt: new Date(), 
+        contentHash, 
+        metadata: { ...(record.metadata || {}), documentType: record.documentType || 'document' }, 
+        extractionStatus: record.extractionStatus, 
+        processingStatus: content ? 'pending' : 'not_processed', 
+        batchId: content ? batchId : '' 
+      });
       job.documentsInserted++;
       if (content) job.analysisQueued++;
       continue;
@@ -44,10 +62,10 @@ async function runCollection(jobId) {
   try {
     const entity = await findInstitutionEntity();
     if (!entity) throw new Error('The selected Education entity ENT_45528e0f is missing.');
-    const results = await Promise.allSettled([extractOfficial(), extractGdelt()]);
+    const results = await Promise.allSettled([extractOfficial()]);
     const records = [];
     for (let i = 0; i < results.length; i++) {
-      const source = i === 0 ? 'official_website' : 'external_news'; const result = results[i];
+      const source = 'official_website'; const result = results[i];
       if (result.status === 'fulfilled') {
         if (!result.value.errors.length || result.value.records.length > 0) job.sourcesCompleted.push(source);
         records.push(...result.value.records); job.pagesDiscovered += result.value.pagesDiscovered || 0; job.errors.push(...result.value.errors);
