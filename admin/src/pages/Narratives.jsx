@@ -1,240 +1,112 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { Network, TrendingUp, AlertCircle, Bookmark, ArrowLeft, Search } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useEntity } from '../context/EntityContext';
+import api from '../services/api';
 
-const Narratives = () => {
+const actions = [
+  ['publish', 'Publish'], ['hold', 'Hold'], ['reject', 'Reject'], ['unpublish', 'Unpublish'],
+];
+
+export default function Narratives() {
   const { selectedEntity } = useEntity();
-  const [narratives, setNarratives] = useState([]);
+  const [items, setItems] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [status, setStatus] = useState('All');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  // Navigation State
-  // view: 'TOPICS' | 'NARRATIVES' | 'DETAIL'
-  const [view, setView] = useState('TOPICS');
-  const [selectedTopic, setSelectedTopic] = useState(null);
-  const [selectedNarrative, setSelectedNarrative] = useState(null);
 
-  useEffect(() => {
-    const fetchNarratives = async () => {
-      if (!selectedEntity) return;
-      try {
-        const { data } = await axios.get(`/api/narratives?entity_id=${selectedEntity.entityId}`, { withCredentials: true });
-        setNarratives(data);
-        setLoading(false);
-      } catch (err) {
-        console.error(err);
-        setLoading(false);
-      }
-    };
-    fetchNarratives();
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = selectedEntity ? { entity_id: selectedEntity.entityId } : {};
+      const [narrativeResponse, alertResponse] = await Promise.all([
+        api.get('/admin/narratives', { params }),
+        api.get('/admin/alerts', { params }),
+      ]);
+      setItems(narrativeResponse.data);
+      setAlerts(alertResponse.data);
+      setSelected([]);
+      setError('');
+    } catch (e) {
+      setError(e.response?.data?.message || 'Could not load narratives.');
+    } finally { setLoading(false); }
   }, [selectedEntity]);
 
-  if (loading) return <div className="p-4">Loading narratives...</div>;
-  if (!selectedEntity) return <div className="p-4">Please select a workspace.</div>;
+  useEffect(() => { load(); }, [load]);
 
-  const filteredNarratives = narratives.filter(n => {
-    // Hide low-evidence narratives from UI
-    if (!n.analysis || !n.analysis.claim_count || n.analysis.claim_count <= 1) {
-      return false;
-    }
+  useEffect(() => {
+    const params = selectedEntity ? { entity_id: selectedEntity.entityId } : {};
+    const timer = setInterval(() => {
+      api.get('/admin/alerts', { params }).then(({ data }) => setAlerts(data)).catch(() => {});
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [selectedEntity]);
 
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      (n.topic && n.topic.toLowerCase().includes(q)) ||
-      (n.description && n.description.toLowerCase().includes(q)) ||
-      (n.intelligence && n.intelligence.toLowerCase().includes(q)) ||
-      (n.recommendation && n.recommendation.toLowerCase().includes(q)) ||
-      (n.supportingEvidence?.sources && n.supportingEvidence.sources.some(s => s.toLowerCase().includes(q)))
-    );
-  });
+  const visible = useMemo(() => status === 'All' ? items : items.filter(item => (item.publicationStatus || 'Pending Review') === status), [items, status]);
+  const act = async (id, action) => {
+    try { await api.put(`/admin/narratives/${id}/${action}`); await load(); }
+    catch (e) { setError(e.response?.data?.message || `Could not ${action} narrative.`); }
+  };
 
-  // Group narratives by topic
-  const groupedNarratives = filteredNarratives.reduce((acc, narrative) => {
-    const topic = narrative.topic || 'General';
-    if (!acc[topic]) acc[topic] = [];
-    acc[topic].push(narrative);
-    return acc;
-  }, {});
+  const bulkPublish = async () => {
+    try { await api.put('/admin/narratives/bulk-publish', { ids: selected }); await load(); }
+    catch (e) { setError(e.response?.data?.message || 'Could not publish selected narratives.'); }
+  };
 
-  return (
-    <div className="w-full">
-      {view === 'TOPICS' && (
-        <div>
-          <div className="flex flex-col mb-12">
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Global Narratives</h1>
-            <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>AI-detected recurring themes and storylines.</p>
-            <div style={{ position: 'relative', width: '100%', maxWidth: '800px' }}>
-              <div style={{ position: 'absolute', top: '50%', left: '1rem', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
-                <Search size={18} />
-              </div>
-              <input
-                type="text"
-                placeholder="Search topics, narratives, recommendations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="form-control"
-                style={{ 
-                  paddingLeft: '2.75rem', 
-                  paddingRight: '1rem', 
-                  paddingTop: '0.85rem', 
-                  paddingBottom: '0.85rem', 
-                  width: '100%',
-                  fontSize: '1rem',
-                  backgroundColor: 'var(--surface-color)'
-                }}
-              />
-            </div>
-          </div>
-          
-          {filteredNarratives.length === 0 ? (
-            <div className="empty-state card py-12 shadow-sm border border-gray-100">
-              <Network size={48} className="text-muted mx-auto" />
-              <h3 className="mt-3 text-center">No narratives found.</h3>
-              <p className="mt-2 text-muted text-center">Try adjusting your search query.</p>
-            </div>
-          ) : (
-            <div>
-              <h2 className="text-lg font-semibold mb-4 text-secondary border-b pb-2">Topics</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {Object.entries(groupedNarratives).map(([topic, nList]) => (
-                  <div 
-                    key={topic} 
-                    className="card shadow-sm border hover:border-primary transition-colors cursor-pointer"
-                    onClick={() => { setSelectedTopic(topic); setView('NARRATIVES'); }}
-                  >
-                    <div className="flex items-center gap-2 mb-2 text-primary font-bold">
-                      <Bookmark size={20} className="text-blue-500" /> <span className="truncate">{topic}</span>
-                    </div>
-                    <div className="text-sm text-secondary font-medium">
-                      {nList.length} narratives
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+  const updateAlert = async (id, nextStatus) => {
+    try { await api.put(`/admin/alerts/${id}/status`, { status: nextStatus }); await load(); }
+    catch (e) { setError(e.response?.data?.message || 'Could not update alert.'); }
+  };
 
-      {view === 'NARRATIVES' && (
-        <div>
-          <div className="flex flex-col mb-12">
-            <div>
-              <button 
-                onClick={() => setView('TOPICS')}
-                className="btn btn-ghost flex items-center text-secondary hover:text-primary mb-6 p-0 shadow-none border-none bg-transparent"
-              >
-                <ArrowLeft size={16} className="mr-1" /> Back to Topics
-              </button>
-            </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)' }} className="flex items-center gap-2"><Bookmark size={28} className="text-blue-500" /> {selectedTopic}</h1>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {groupedNarratives[selectedTopic]?.map(n => (
-              <div key={n._id} className="card shadow-sm border flex flex-col justify-between">
-                <div>
-                  <h3 className="text-primary font-semibold mb-3 leading-snug">{n.description}</h3>
-                  {n.recommendation && (
-                    <div className="text-sm text-secondary mb-4 italic border-l-2 pl-3 py-1" style={{ borderColor: 'var(--success-color, #22c55e)' }}>
-                      "{n.recommendation.substring(0, 80)}..."
-                    </div>
-                  )}
-                </div>
-                
-                <div className="border-t pt-4 mt-auto" style={{ borderColor: 'var(--border-color, #e2e8f0)' }}>
-                  <div className="flex flex-wrap items-center justify-between mb-4">
-                    <div className="flex gap-4 text-xs font-semibold text-secondary">
-                      <span className="flex items-center gap-1">
-                        <TrendingUp size={14} /> 
-                        Trend: {n.trend || 'Stable'}
-                      </span>
-                      <span>Claims: {n.analysis?.claim_count || 0}</span>
-                    </div>
-                  </div>
-                  
-                  <button 
-                    onClick={() => { setSelectedNarrative(n); setView('DETAIL'); }}
-                    className="btn btn-secondary w-full"
-                  >
-                    View Details &rarr;
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+  const toggle = id => setSelected(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+  const toggleAll = () => setSelected(selected.length === visible.length ? [] : visible.map(item => item._id));
 
-      {view === 'DETAIL' && selectedNarrative && (
-        <div>
-          <div className="flex flex-col mb-12">
-            <div>
-              <button 
-                onClick={() => setView('NARRATIVES')}
-                className="btn btn-ghost flex items-center text-secondary hover:text-primary mb-6 p-0 shadow-none border-none bg-transparent"
-              >
-                <ArrowLeft size={16} className="mr-1" /> Back to Narratives
-              </button>
-            </div>
-            <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', lineHeight: '1.2' }}>{selectedNarrative.description}</h1>
-            <div>
-              <span className="badge badge-outline border border-gray-300 px-3 py-1 text-sm rounded bg-gray-50">{selectedNarrative.topic}</span>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="card shadow-sm border border-gray-100">
-                <h3 className="font-semibold mb-3 border-b pb-2">Intelligence Summary</h3>
-                <p className="text-secondary leading-relaxed whitespace-pre-wrap">{selectedNarrative.intelligence || 'No detailed intelligence available.'}</p>
-              </div>
-              
-              <div className="card shadow-sm border border-gray-100">
-                <h3 className="font-semibold mb-3 border-b pb-2">Recommendation / Action</h3>
-                <p className="text-secondary leading-relaxed whitespace-pre-wrap italic">{selectedNarrative.recommendation || 'No specific recommendations provided.'}</p>
-              </div>
-            </div>
-            
-            <div className="space-y-6">
-              <div className="card bg-gray-50 border shadow-sm">
-                <h3 className="font-semibold mb-3">Metrics</h3>
-                <ul className="space-y-3 text-sm">
-                  <li className="flex justify-between border-b border-gray-200 pb-1">
-                    <span className="text-secondary">Claim Count</span>
-                    <span className="font-semibold">{selectedNarrative.analysis?.claim_count || 0}</span>
-                  </li>
-                  <li className="flex justify-between border-b border-gray-200 pb-1">
-                    <span className="text-secondary">Source Count</span>
-                    <span className="font-semibold">{selectedNarrative.analysis?.source_count || 0}</span>
-                  </li>
-                  <li className="flex justify-between">
-                    <span className="text-secondary">Trend</span>
-                    <span className="font-semibold">{selectedNarrative.trend || 'Stable'}</span>
-                  </li>
-                </ul>
-              </div>
-              
-              <div className="card bg-gray-50 border shadow-sm">
-                <h3 className="font-semibold mb-3">Sources</h3>
-                {selectedNarrative.supportingEvidence?.sources?.length > 0 ? (
-                  <ul className="list-disc pl-5 text-sm text-secondary space-y-1">
-                    {selectedNarrative.supportingEvidence.sources.map((s, i) => <li key={i}>{s}</li>)}
-                  </ul>
-                ) : (
-                  <p className="text-sm text-gray-500">No specific sources identified.</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+  return <section>
+    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div><h1>Narrative review</h1><p className="text-secondary">Review AI findings before they appear to users.</p></div>
+      <div className="flex items-center gap-3"><select className="form-control" value={status} onChange={e => setStatus(e.target.value)}>
+        {['All', 'Pending Review', 'Published', 'Held', 'Rejected'].map(value => <option key={value}>{value}</option>)}
+      </select><button className="btn btn-secondary" onClick={load}><RefreshCw size={16} /> Refresh</button></div>
     </div>
-  );
-};
-
-export default Narratives;
-
+    {error && <div className="card mb-4" role="alert" style={{ color: 'var(--status-error)' }}>{error}</div>}
+    <section className="mb-8" aria-label="Security alerts">
+      <div className="flex items-center gap-2 mb-3"><AlertCircle size={20} style={{ color: '#b91c1c' }} /><h2>Security alerts</h2><span className="text-secondary text-sm">{alerts.length} open or confirmed</span></div>
+      <p className="text-secondary text-sm mb-4">Automated signals are for human review; they do not establish that an incident occurred.</p>
+      {alerts.length === 0 ? <div className="card text-secondary">No open security alerts.</div> : <div className="grid gap-3">
+        {alerts.map(alert => <article className="card" key={alert._id} style={{ borderLeft: `4px solid ${alert.severity === 'critical' ? '#dc2626' : '#f97316'}` }}>
+          <div className="flex flex-wrap items-start justify-between gap-4"><div>
+            <div className="flex flex-wrap items-center gap-2"><strong>{alert.title}</strong><span className="badge">{alert.severity}</span><span className="badge">{alert.status}</span><span className="text-secondary text-sm">{alert.eventType.replaceAll('_', ' ')}</span></div>
+            <p className="mt-2">{alert.summary || alert.narrative?.description}</p><p className="text-secondary text-sm mt-2">{alert.reason}</p>
+            <p className="text-secondary text-xs mt-2">Detected {alert.lastTriggeredAt ? new Date(alert.lastTriggeredAt).toLocaleString() : 'recently'} · {alert.occurrenceCount || 1} distinct evidence updates · signal score {Math.round((alert.confidence || 0) * 100)}% (heuristic, not truth probability)</p>
+          </div><div className="flex flex-wrap gap-2">{['Confirmed', 'Unsubstantiated', 'Duplicate', 'Resolved'].map(value => <button key={value} className="btn btn-secondary" onClick={() => updateAlert(alert._id, value)}>{value}</button>)}</div></div>
+          {alert.evidence?.length > 0 && <div className="grid gap-2 mt-4">{alert.evidence.map(source => <div className="rounded border p-3 text-sm" key={source.documentId || source.url || source.title}>
+            <div className="flex flex-wrap justify-between gap-2"><strong>{source.title || source.source}</strong><span className="text-secondary">{source.sourceType} · {source.publishedAt ? new Date(source.publishedAt).toLocaleDateString() : 'date unknown'}</span></div>
+            {source.excerpt && <p className="text-secondary mt-2">{source.excerpt}</p>}
+            {source.url && <a href={source.url} target="_blank" rel="noreferrer" className="inline-block mt-2">Open source</a>}
+          </div>)}</div>}
+        </article>)}
+      </div>}
+    </section>
+    <div className="flex items-center gap-3 mb-4"><button className="btn btn-primary" disabled={!selected.length} onClick={bulkPublish}>Publish selected ({selected.length})</button><span className="text-secondary text-sm">{items.length} narratives</span></div>
+    {loading ? <p className="text-secondary">Loading narratives…</p> : visible.length === 0 ? <div className="card text-secondary">No narratives in this status.</div> : <div className="grid gap-4">
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={visible.length > 0 && selected.length === visible.length} onChange={toggleAll} /> Select all shown</label>
+      {visible.map(item => <article className="card" key={item._id} style={{ borderLeft: `4px solid ${item.severityLevel === 'critical' ? '#dc2626' : item.severityLevel === 'high' ? '#f97316' : 'var(--border-color, #e5e7eb)'}` }}>
+        <div className="flex flex-wrap justify-between gap-4">
+          <div className="flex gap-3 min-w-0"><input aria-label={`Select ${item.description}`} type="checkbox" checked={selected.includes(item._id)} onChange={() => toggle(item._id)} />
+            <div><h2 className="text-lg font-semibold">{item.description}</h2><p className="text-secondary text-sm mt-1">{item.topic || 'General'} · {item.entityId} · {item.lastObservedAt ? new Date(item.lastObservedAt).toLocaleDateString() : 'Date unavailable'}</p>
+              {item.intelligence && <p className="mt-3 whitespace-pre-wrap">{item.intelligence}</p>}
+              <p className="text-secondary text-sm mt-2">{item.analysis?.source_count || 0} sources · {item.analysis?.claim_count || 0} claims · Severity: <strong>{item.severityLevel || 'normal'}</strong> · {item.publicationStatus || 'Pending Review'}</p>
+              {item.severityReason && <p className="text-sm mt-1">{item.severityReason}</p>}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">{actions.map(([action, label]) => {
+            if (action === 'unpublish' && !item.isPublished) return null;
+            if (action !== 'unpublish' && item.isPublished && action === 'publish') return null;
+            return <button key={action} className={`btn ${action === 'publish' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => act(item._id, action)}>{label}</button>;
+          })}</div>
+        </div>
+      </article>)}
+    </div>}
+  </section>;
+}

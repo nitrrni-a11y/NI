@@ -14,8 +14,8 @@ const router = express.Router();
 
 // Publicly available (to authenticated users)
 router.get('/sources', protect, getSources);
-router.get('/narratives', protect, getNarratives);
-router.get('/narratives/:id', protect, getNarrativeById);
+router.get('/narratives', getNarratives);
+router.get('/narratives/:id', getNarrativeById);
 
 // Admin only routes
 router.get('/processing/status', protect, admin, getProcessingStatus);

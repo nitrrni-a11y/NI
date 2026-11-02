@@ -3,6 +3,7 @@ import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
 import Entity from '../models/Entity.js';
 import Topic from '../models/Topic.js';
+import SecurityAlert from '../models/SecurityAlert.js';
 
 // @desc    Get all unique sources
 // @route   GET /api/sources
@@ -39,14 +40,22 @@ const getSources = async (req, res) => {
 // @access  Private
 const getNarratives = async (req, res) => {
   try {
-
-    const { entity_id } = req.query;
-    const query = {};
+    const { entity_id, domain, category, search } = req.query;
+    const query = { isPublished: true };
     if (entity_id) {
       query.entityId = entity_id;
     }
-    
-    const allNarratives = await Narrative.find(query);
+    if (category) query.topic = category;
+    if (domain) {
+      const escapedDomain = String(domain).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matchingEntities = await Entity.find({ domain: new RegExp(`^${escapedDomain}$`, 'i') }).distinct('entityId');
+      query.entityId = { $in: matchingEntities };
+      if (entity_id) query.entityId = { $in: matchingEntities.includes(entity_id) ? [entity_id] : [] };
+    }
+    if (search && String(search).trim()) {
+      const safeSearch = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [{ description: new RegExp(safeSearch, 'i') }, { intelligence: new RegExp(safeSearch, 'i') }, { topic: new RegExp(safeSearch, 'i') }];
+    }
     const narratives = await Narrative.find(query)
       .sort({ 'analysis.strength': -1, lastObservedAt: -1 })
       .limit(50);
@@ -64,7 +73,7 @@ const getNarratives = async (req, res) => {
 // @access  Private
 const getNarrativeById = async (req, res) => {
   try {
-    const narrative = await Narrative.findById(req.params.id);
+    const narrative = await Narrative.findOne({ _id: req.params.id, isPublished: true });
     if (narrative) {
       res.json(narrative);
     } else {
@@ -302,23 +311,44 @@ const processDocumentsBackground = async (jobId) => {
           
           claimCount += nar.analysis?.claim_count || 0;
 
+          const referencedDocumentIds = (nar.supporting_evidence?.document_ids || []).filter(id => /^[a-f\d]{24}$/i.test(String(id)));
+          const sourceDocuments = referencedDocumentIds.length
+            ? await Document.find({ _id: { $in: referencedDocumentIds } }).limit(20)
+            : [];
+          const risk = detectSecurityRisk(nar, sourceDocuments);
+          const severity = classifySeverity(nar, risk);
+          const updateFields = {
+            narrativeId: nar.narrative_id,
+            entityId: job.entityId,
+            topic: nar.topic || 'Unknown',
+            description: nar.narrative,
+            intelligence: nar.intelligence || '',
+            recommendation: nar.recommendation || '',
+            supportingEvidence: nar.supporting_evidence || {},
+            analysis: nar.analysis || {},
+            lastObservedAt: new Date(),
+            ...severity,
+          };
+          // A new critical finding always returns to moderation, even if an
+          // earlier version of the same narrative had been published.
+          const hasNewEvidence = referencedDocumentIds.some(id =>
+            !(existing?.supportingEvidence?.document_ids || []).map(String).includes(String(id))
+          );
+          if (severity.severityLevel === 'critical' && (!existing || existing.severityLevel !== 'critical' || hasNewEvidence)) {
+            updateFields.publicationStatus = 'Pending Review';
+            updateFields.isPublished = false;
+          }
+
           await Narrative.findOneAndUpdate(
             { narrativeId: nar.narrative_id },
-            {
-              $set: {
-                narrativeId: nar.narrative_id,
-                entityId: job.entityId,
-                topic: nar.topic || 'Unknown',
-                description: nar.narrative,
-                intelligence: nar.intelligence || '',
-                recommendation: nar.recommendation || '',
-                supportingEvidence: nar.supporting_evidence || {},
-                analysis: nar.analysis || {},
-                lastObservedAt: new Date(),
-              }
-            },
+            { $set: updateFields },
             { upsert: true, new: true }
           );
+
+          if (risk) {
+            const savedNarrative = await Narrative.findOne({ narrativeId: nar.narrative_id });
+            await upsertSecurityAlert({ risk, narrative: savedNarrative, narrativeOutput: nar, sourceDocuments });
+          }
 
           // Save new topic if the AI decided to create one
           if (nar.is_new_topic && nar.topic && nar.topic !== 'Unknown') {
@@ -400,6 +430,80 @@ const processDocumentsBackground = async (jobId) => {
       }
     } catch(e){}
   }
+};
+
+const detectSecurityRisk = (narrative, documents) => {
+  const narrativeText = [narrative.narrative, narrative.intelligence, narrative.recommendation].filter(Boolean).join(' ');
+  const candidates = [
+    { documentId: null, text: narrativeText },
+    ...documents.map(doc => ({ documentId: doc._id.toString(), text: doc.processingText || doc.translatedText || doc.rawText || '' })),
+  ];
+  const selfHarm = /\b(suicid(e|al)|self[- ]harm|attempted suicide|took (their|his|her) own life|died by suicide)\b/i;
+  const selfHarmEvent = /\b(death|died|dead|case|incident|attempt|attempted|found|reported|alleged|student|faculty|staff|institution|campus)\b/i;
+  const selfHarmMatches = candidates.filter(candidate => selfHarm.test(candidate.text) && selfHarmEvent.test(candidate.text));
+  if (selfHarmMatches.length) {
+    return { eventType: 'self_harm', severity: 'critical', title: 'Possible suicide or self-harm incident', reason: 'Processed narrative or source text mentions suicide or self-harm together with an incident, death, attempt, or institutional context. Verify the source and recency before treating this as confirmed.', matchedDocumentIds: selfHarmMatches.map(item => item.documentId).filter(Boolean) };
+  }
+
+  const immediateThreat = /\b(active shooter|bomb threat|threat to (kill|attack)|imminent attack|shooting|stabbing|mass casualty|terrorist attack)\b/i;
+  const threatMatches = candidates.filter(candidate => immediateThreat.test(candidate.text));
+  if (threatMatches.length) {
+    return { eventType: 'violence_threat', severity: 'critical', title: 'Possible immediate violence or threat', reason: 'Processed narrative or source text contains language associated with an immediate threat or serious violent incident. Human review is required.', matchedDocumentIds: threatMatches.map(item => item.documentId).filter(Boolean) };
+  }
+
+  const seriousSafetyEvent = /\b(killed|fatality|fatal|explosion|fire|outbreak|emergency evacuation)\b/i;
+  const safetyMatches = candidates.filter(candidate => seriousSafetyEvent.test(candidate.text) && /\b(institution|campus|school|university|college|hospital|facility|attack|incident|emergency)\b/i.test(candidate.text));
+  if (safetyMatches.length) {
+    return { eventType: 'public_safety', severity: 'high', title: 'Possible serious public safety incident', reason: 'Processed narrative or source text may describe a serious safety event connected to an institution. Verify before acting.', matchedDocumentIds: safetyMatches.map(item => item.documentId).filter(Boolean) };
+  }
+  return null;
+};
+
+const classifySeverity = (narrative, risk) => {
+  if (risk) return { severityLevel: risk.severity, severityReason: risk.reason };
+  const text = [narrative.narrative, narrative.intelligence, narrative.recommendation].filter(Boolean).join(' ');
+  const high = /violence|violent|crisis|fatal|killed|attack|emergency|outbreak/i;
+  if (high.test(text)) return { severityLevel: 'high', severityReason: 'Potential violence, emergency, or crisis language detected.' };
+  return { severityLevel: 'normal', severityReason: '' };
+};
+
+const upsertSecurityAlert = async ({ risk, narrative, narrativeOutput, sourceDocuments }) => {
+  if (!narrative) return;
+  const alertKey = `${narrative.narrativeId}:${risk.eventType}`;
+  const signalPattern = /suicid(e|al)|self[- ]harm|attempted suicide|took (their|his|her) own life|died by suicide|active shooter|bomb threat|threat to (kill|attack)|imminent attack|shooting|stabbing|mass casualty|terrorist attack|killed|fatality|fatal|explosion|fire|outbreak|emergency evacuation/i;
+  const relevantDocuments = risk.matchedDocumentIds?.length
+    ? sourceDocuments.filter(doc => risk.matchedDocumentIds.includes(doc._id.toString()))
+    : sourceDocuments;
+  const evidence = relevantDocuments.slice(0, 10).map(doc => {
+    const text = doc.processingText || doc.translatedText || doc.rawText || '';
+    const match = signalPattern.exec(text);
+    const start = match ? Math.max(0, match.index - 140) : 0;
+    const excerpt = text.slice(start, start + 360).trim();
+    return {
+      documentId: doc._id.toString(), source: doc.source || 'Unknown', sourceType: doc.sourceType || 'Unknown',
+      title: doc.title || '', url: doc.url || '', excerpt,
+      publishedAt: doc.publicationDate || null,
+    };
+  });
+  const previous = await SecurityAlert.findOne({ alertKey });
+  const mergedEvidence = [...(previous?.evidence || [])];
+  for (const item of evidence) {
+    if (!mergedEvidence.some(old => old.documentId === item.documentId)) mergedEvidence.push(item);
+  }
+  const newlyObserved = evidence.some(item => !previous?.evidence?.some(old => old.documentId === item.documentId));
+  const sourceCount = Math.max(1, Number(narrativeOutput.analysis?.source_count || 1));
+  const confidence = Math.min(0.8, 0.35 + (sourceCount - 1) * 0.1);
+  const nextStatus = previous && newlyObserved && previous.status !== 'Open' ? 'Open' : (previous?.status || 'Open');
+
+  const alertUpdate = { $set: {
+      narrative: narrative._id, entityId: narrative.entityId, severity: risk.severity,
+      eventType: risk.eventType, title: risk.title, summary: narrative.description,
+      reason: risk.reason, confidence, evidence: mergedEvidence.slice(-10),
+      lastTriggeredAt: new Date(), status: nextStatus,
+    } };
+  if (previous && newlyObserved) alertUpdate.$inc = { occurrenceCount: 1 };
+  if (!previous) alertUpdate.$setOnInsert = { firstTriggeredAt: new Date(), occurrenceCount: 1 };
+  await SecurityAlert.findOneAndUpdate({ alertKey }, alertUpdate, { upsert: true, new: true });
 };
 
 // @desc    Start AI processing job

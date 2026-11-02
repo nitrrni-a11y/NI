@@ -102,19 +102,27 @@ def extract_youtube_metadata(url: str, video_id: str) -> Dict[str, Any]:
 
 def _get_transcript_list(video_id: str):
     """
-    Safely retrieves the TranscriptList across different versions of youtube-transcript-api.
+    Retrieves the TranscriptList using the current instance API, with support
+    for the older class-level API. Do not swallow request errors here: retrying
+    the same request through a fallback masks the original YouTube/API failure.
     """
-    from youtube_transcript_api import YouTubeTranscriptApi
     try:
-        api = YouTubeTranscriptApi()
-        if hasattr(api, 'list'):
-            return api.list(video_id)
-    except Exception:
-        pass
+        from youtube_transcript_api import YouTubeTranscriptApi
+    except ModuleNotFoundError as error:
+        if error.name == 'youtube_transcript_api':
+            raise RuntimeError(
+                'YouTube transcript support is not installed. From the ai folder, '
+                'run: python -m pip install -r requirements.txt'
+            ) from error
+        raise
 
+    api = YouTubeTranscriptApi()
+    list_method = getattr(api, 'list', None)
+    if callable(list_method):
+        return list_method(video_id)
     if hasattr(YouTubeTranscriptApi, 'list_transcripts'):
         return YouTubeTranscriptApi.list_transcripts(video_id)
-    return YouTubeTranscriptApi().list(video_id)
+    raise RuntimeError('Installed youtube-transcript-api has no supported transcript listing method.')
 
 
 def extract_youtube_transcript(video_id: str) -> Dict[str, Any]:
