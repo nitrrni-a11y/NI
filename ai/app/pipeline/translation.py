@@ -9,6 +9,7 @@ from langdetect.lang_detect_exception import LangDetectException
 
 from app.pipeline.schemas import RawDocument, PreprocessedDocument
 from app.pipeline.gemini_utils import get_gemini_client, generate_with_retry, _sanitize_error
+from app.pipeline.cancellation import cancellation_manager, BatchCancelledException
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +187,8 @@ def _translate_chunk_with_gemini(
     total_chunks: int = 1,
     model: str = DEFAULT_TRANSLATION_MODEL,
     max_retries: int = 3,
-    client=None
+    client=None,
+    run_id: Optional[str] = None
 ) -> str:
     """
     Translates a single text chunk into English using Google Gemini LLM.
@@ -195,6 +197,9 @@ def _translate_chunk_with_gemini(
     - Preserves names, dates, numbers, URLs, and original meaning.
     - Logs doc_id, language, chunk number, duration, and sanitized error reason on failure.
     """
+    if run_id:
+        cancellation_manager.check_cancelled(run_id)
+
     if client is None:
         client = get_gemini_client()
 
@@ -230,7 +235,10 @@ def _translate_chunk_with_gemini(
             model=model,
             contents=prompt,
             config=config,
-            max_retries=max_retries
+            max_retries=max_retries,
+            run_id=run_id,
+            stage_name="Translation-Chunk",
+            items_count=1
         )
 
         raw_text = (response.text or "").strip()
@@ -269,7 +277,8 @@ def translate_text(
     target_lang: str = "en",
     max_retries: int = 3,
     doc_id: str = "unknown",
-    model: str = DEFAULT_TRANSLATION_MODEL
+    model: str = DEFAULT_TRANSLATION_MODEL,
+    run_id: Optional[str] = None
 ) -> str:
     """
     Translates non-English text to English using Gemini LLM.
@@ -280,12 +289,17 @@ def translate_text(
     if not text or not text.strip():
         return ""
 
+    if run_id:
+        cancellation_manager.check_cancelled(run_id)
+
     chunks = split_text_into_chunks(text, max_chars=MAX_CHUNK_CHARS)
     total_chunks = len(chunks)
 
     client = get_gemini_client()
     translated_chunks = []
     for idx, chunk in enumerate(chunks):
+        if run_id:
+            cancellation_manager.check_cancelled(run_id)
         trans = _translate_chunk_with_gemini(
             chunk=chunk,
             source_lang=source_lang,
@@ -294,7 +308,8 @@ def translate_text(
             total_chunks=total_chunks,
             model=model,
             max_retries=max_retries,
-            client=client
+            client=client,
+            run_id=run_id
         )
         translated_chunks.append(trans)
 
@@ -306,7 +321,8 @@ def translate_text(
 
 def process_document_language(
     preprocessed_doc: PreprocessedDocument,
-    raw_doc: Optional[RawDocument] = None
+    raw_doc: Optional[RawDocument] = None,
+    run_id: Optional[str] = None
 ) -> PreprocessedDocument:
     """
     Integrates language detection and conditional translation into PreprocessedDocument using Gemini.
@@ -364,7 +380,8 @@ def process_document_language(
             target_lang="en",
             max_retries=3,
             doc_id=doc_id,
-            model=DEFAULT_TRANSLATION_MODEL
+            model=DEFAULT_TRANSLATION_MODEL,
+            run_id=run_id
         )
         duration = time.time() - t_start
 
@@ -384,6 +401,8 @@ def process_document_language(
         else:
             raise ValueError("Gemini returned empty translation.")
 
+    except BatchCancelledException:
+        raise
     except Exception as e:
         duration = time.time() - t_start
         err_msg = _sanitize_error(type(e).__name__ + (f": {e}" if str(e) else ""))

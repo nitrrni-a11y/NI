@@ -94,9 +94,9 @@ const AdminLayout = () => {
             {selectedEntity && (
               <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 500 }}>
-                  {selectedEntity.domain} / <span style={{ color: 'var(--text-color)', fontWeight: 600 }}>{selectedEntity.name}</span>
+                  {selectedEntity.domain} / <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{selectedEntity.name}</span>
                 </span>
-                <Link to="/" style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--primary-color)', textDecoration: 'underline' }}>
+                <Link to="/" style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--accent-blue)', textDecoration: 'underline' }}>
                   [Change Entity]
                 </Link>
               </div>

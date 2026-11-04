@@ -88,11 +88,11 @@ const logoutUser = (req, res) => {
 };
 
 // @desc    Get user profile
-// @route   GET /api/auth/me
+// @route   GET /api/auth/me or GET /api/auth/profile
 // @access  Private
 const getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = req.user || (await User.findById(req.user?._id));
 
     if (user) {
       res.json({

@@ -127,6 +127,17 @@ const uploadCsv = async (req, res) => {
 
     const aiService = (await import('../services/aiService.js')).default;
     
+    // 0. Pre-flight health check to ensure Python AI service is accessible
+    const health = await aiService.checkHealth();
+    if (!health.healthy) {
+      return res.status(503).json({
+        success: false,
+        code: 'AI_SERVICE_UNAVAILABLE',
+        message: 'Python AI Service is currently offline or unreachable at ' + health.url + '. Please start the AI service on port 8000 and try again.',
+        suggestion: 'Run "python -m uvicorn app.main:app --port 8000" in the ai directory.'
+      });
+    }
+
     // 1. Send file buffer to AI service to parse
     const aiResponse = await aiService.parseCSV(req.file.buffer, req.file.originalname);
     
@@ -188,6 +199,14 @@ const uploadCsv = async (req, res) => {
     });
   } catch (error) {
     console.error('CSV upload error:', error);
+    if (error.code === 'AI_SERVICE_UNAVAILABLE' || error.isConnectionError) {
+      return res.status(503).json({
+        success: false,
+        code: 'AI_SERVICE_UNAVAILABLE',
+        message: error.message,
+        suggestion: 'Run "python -m uvicorn app.main:app --port 8000" in the ai directory.'
+      });
+    }
     res.status(500).json({ message: error.message || 'Server error during CSV upload' });
   }
 };
@@ -201,7 +220,36 @@ const deleteDocument = async (req, res) => {
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
     }
+    const batchId = document.batchId;
+    const entityId = document.entityId;
+
     await Document.deleteOne({ _id: document._id });
+
+    // Reconcile associated processing job if document belonged to a batch
+    if (batchId) {
+      try {
+        const remainingTotal = await Document.countDocuments({ batchId });
+        const remainingCompleted = await Document.countDocuments({ batchId, processingStatus: 'completed' });
+        const remainingFailed = await Document.countDocuments({ batchId, processingStatus: 'failed' });
+        const remainingUnprocessed = await Document.countDocuments({ batchId, processingStatus: { $in: ['not_processed', 'pending'] } });
+
+        const updateData = {
+          totalDocuments: remainingTotal,
+          processedDocuments: remainingCompleted,
+          failedDocuments: remainingFailed
+        };
+        if (remainingTotal === 0) {
+          updateData.status = 'IDLE';
+        } else if (remainingUnprocessed === 0 && remainingCompleted === remainingTotal) {
+          updateData.status = 'COMPLETED';
+        }
+
+        await ProcessingJob.updateMany({ batchId }, { $set: updateData });
+      } catch (syncErr) {
+        console.error('[deleteDocument] Error syncing job counts:', syncErr.message);
+      }
+    }
+
     res.json({ message: 'Document removed' });
   } catch (error) {
     console.error(error);
@@ -219,9 +267,41 @@ const bulkDeleteDocuments = async (req, res) => {
       return res.status(400).json({ message: 'No document IDs provided' });
     }
     
+    // Identify distinct batches and entities affected before deletion
+    const affectedDocs = await Document.find({ _id: { $in: documentIds } }, { batchId: 1, entityId: 1 }).lean();
+    const batchSet = new Set();
+    affectedDocs.forEach(d => {
+      if (d.batchId) batchSet.add(d.batchId);
+    });
+
     const result = await Document.deleteMany({
       _id: { $in: documentIds }
     });
+
+    // Reconcile all affected processing jobs
+    for (const bId of batchSet) {
+      try {
+        const remainingTotal = await Document.countDocuments({ batchId: bId });
+        const remainingCompleted = await Document.countDocuments({ batchId: bId, processingStatus: 'completed' });
+        const remainingFailed = await Document.countDocuments({ batchId: bId, processingStatus: 'failed' });
+        const remainingUnprocessed = await Document.countDocuments({ batchId: bId, processingStatus: { $in: ['not_processed', 'pending'] } });
+
+        const updateData = {
+          totalDocuments: remainingTotal,
+          processedDocuments: remainingCompleted,
+          failedDocuments: remainingFailed
+        };
+        if (remainingTotal === 0) {
+          updateData.status = 'IDLE';
+        } else if (remainingUnprocessed === 0 && remainingCompleted === remainingTotal) {
+          updateData.status = 'COMPLETED';
+        }
+
+        await ProcessingJob.updateMany({ batchId: bId }, { $set: updateData });
+      } catch (syncErr) {
+        console.error(`[bulkDeleteDocuments] Error syncing job counts for batch ${bId}:`, syncErr.message);
+      }
+    }
     
     res.json({ message: `${result.deletedCount} documents removed` });
   } catch (error) {

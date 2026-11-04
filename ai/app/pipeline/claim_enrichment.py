@@ -4,6 +4,7 @@ from typing import List
 
 # Suppress harmless huggingface_hub resume_download deprecation warning
 warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sentence_transformers import SentenceTransformer

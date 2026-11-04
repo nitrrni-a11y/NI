@@ -3,7 +3,87 @@ import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
 import Entity from '../models/Entity.js';
 import Topic from '../models/Topic.js';
-import SecurityAlert from '../models/SecurityAlert.js';
+
+// In-memory active runs registry: jobId -> { runId, jobId, batchId, entityId, abortController, startedAt }
+const activeRuns = new Map();
+
+/**
+ * Reconciles any lingering jobs that were left in PROCESSING or STOP_REQUESTED
+ * across server restarts, ensuring the database and UI never display stale processing states.
+ */
+const reconcileInterruptedJobs = async () => {
+  try {
+    const stuckJobs = await ProcessingJob.find({
+      status: { $in: ['PROCESSING', 'STOP_REQUESTED'] }
+    });
+    for (const job of stuckJobs) {
+      try {
+        // 1. If entityId is missing on legacy records, populate it from associated batch documents
+        if (!job.entityId && job.batchId) {
+          const sampleDoc = await Document.findOne({ batchId: job.batchId, entityId: { $exists: true, $ne: null } });
+          if (sampleDoc?.entityId) {
+            job.entityId = sampleDoc.entityId;
+          }
+        }
+
+        // 2. If entityId is still missing, check if this job has any documents at all
+        if (!job.entityId) {
+          let docCount = 0;
+          if (job.batchId) {
+            docCount = await Document.countDocuments({ batchId: job.batchId });
+          }
+          if (docCount === 0) {
+            console.warn(`[Reconciliation] Removing orphaned ProcessingJob ${job._id} with no entityId and no documents.`);
+            await ProcessingJob.deleteOne({ _id: job._id });
+            continue;
+          }
+        }
+
+        const wasStopping = job.stopRequested || job.status === 'STOP_REQUESTED';
+        job.status = wasStopping ? 'CANCELLED' : 'STOPPED';
+        job.stopRequested = false;
+        job.completedAt = new Date();
+        if (wasStopping) {
+          job.cancelledAt = job.cancelledAt || new Date();
+          job.cancellationReason = job.cancellationReason || 'Cancelled (reconciled after service interruption)';
+        } else {
+          job.error = job.error || 'Processing was interrupted by service restart';
+        }
+
+        if (job.entityId) {
+          await job.save();
+        } else {
+          await ProcessingJob.updateOne(
+            { _id: job._id },
+            {
+              $set: {
+                status: job.status,
+                stopRequested: false,
+                completedAt: job.completedAt,
+                cancelledAt: job.cancelledAt,
+                cancellationReason: job.cancellationReason,
+                error: job.error
+              }
+            }
+          );
+        }
+
+        // Reset any documents stuck in 'processing' or 'pending' back to 'not_processed'
+        const docQuery = { processingStatus: { $in: ['processing', 'pending'] } };
+        if (job.batchId) docQuery.batchId = job.batchId;
+        if (job.entityId) docQuery.entityId = job.entityId;
+        await Document.updateMany(docQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
+      } catch (jobErr) {
+        console.error(`[Reconciliation] Error reconciling job ${job._id}:`, jobErr.message);
+      }
+    }
+    if (stuckJobs.length > 0) {
+      console.log(`[Reconciliation] Reconciled ${stuckJobs.length} interrupted processing jobs.`);
+    }
+  } catch (err) {
+    console.error('[Reconciliation] Error reconciling processing jobs:', err);
+  }
+};
 
 // @desc    Get all unique sources
 // @route   GET /api/sources
@@ -35,13 +115,138 @@ const getSources = async (req, res) => {
   }
 };
 
+// Canonical topic mappings across all entities
+const CANONICAL_TOPIC_REMAP = {
+  "facilities": "Infrastructure & Facilities",
+  "infrastructure": "Infrastructure & Facilities",
+  "campus infrastructure": "Infrastructure & Facilities",
+  "placement": "Placements & Careers",
+  "placements": "Placements & Careers",
+  "careers": "Placements & Careers",
+  "exams": "Examinations",
+  "exam": "Examinations",
+  "examination": "Examinations",
+  "accommodation": "Hostel & Accommodation",
+  "hostel": "Hostel & Accommodation",
+  "hostels": "Hostel & Accommodation",
+  "events": "Campus Events",
+  "campus event": "Campus Events",
+  "partnerships": "Institutional Partnerships",
+  "partnership": "Institutional Partnerships",
+  "student feedback": "Student Experience",
+  "feedback": "Student Experience",
+  "student life": "Student Experience",
+  "academics": "Academics & Curriculum",
+  "curriculum": "Academics & Curriculum",
+  "faculty": "Faculty & Teaching",
+  "admissions": "Admissions & Enrollment",
+  "administration": "Administration & Governance"
+};
+
+export const sanitizeTopicName = (name, entityName, domain) => {
+  if (!name || typeof name !== 'string') return 'General';
+  let clean = name.trim();
+  clean = clean.replace(/\(.*?\)/g, '').replace(/\[.*?\]/g, '').trim();
+
+  if (entityName && entityName.toLowerCase() !== 'unknown') {
+    const esc = entityName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(`^${esc}\\s*[-–—:|/]?\\s*`, 'i'), '');
+    clean = clean.replace(new RegExp(`\\s*[-–—:|/]?\\s*${esc}$`, 'i'), '');
+
+    const parts = entityName.split(/\s+/).filter(p => p.length >= 3 && !['the', 'and', 'for', 'of'].includes(p.toLowerCase()));
+    for (const p of parts) {
+      const escP = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      clean = clean.replace(new RegExp(`^${escP}\\s*[-–—:|/]?\\s*`, 'i'), '');
+      clean = clean.replace(new RegExp(`\\s*[-–—:|/]?\\s*${escP}$`, 'i'), '');
+    }
+  }
+
+  if (domain && domain.toLowerCase() !== 'unknown') {
+    const escD = domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    clean = clean.replace(new RegExp(`^${escD}\\s*[-–—:|/]?\\s*`, 'i'), '');
+    clean = clean.replace(new RegExp(`\\s*[-–—:|/]?\\s*${escD}$`, 'i'), '');
+  }
+
+  clean = clean.replace(/^[\s\-–—:|/,.#'"]+|[\s\-–—:|/,.#'"]+$/g, '').trim();
+  clean = clean.replace(/\s+(?:of|at|in|for|on|by|with|to|from)$/i, '').trim();
+  clean = clean.replace(/^[\s\-–—:|/,.#'"]+|[\s\-–—:|/,.#'"]+$/g, '').trim();
+  if (!clean) return 'General';
+
+  const lower = clean.toLowerCase();
+  if (CANONICAL_TOPIC_REMAP[lower]) {
+    return CANONICAL_TOPIC_REMAP[lower];
+  }
+  return clean.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase());
+};
+
+const populateNarrativeTimeline = async (narrative) => {
+  if (!narrative) return narrative;
+  const narObj = narrative.toObject ? narrative.toObject() : { ...narrative };
+
+  let timeline = narObj.analysis?.temporal_information?.timeline || narObj.analysis?.timeline || [];
+
+  if (!timeline || timeline.length === 0) {
+    const docIds = (narObj.supportingEvidence?.document_ids || []).filter(id => /^[a-f\d]{24}$/i.test(String(id)));
+    if (docIds.length > 0) {
+      const docs = await Document.find({ _id: { $in: docIds } }, 'publicationDate collectedDate createdAt source').lean();
+      const dateMap = {};
+      for (const d of docs) {
+        const dt = d.publicationDate || d.collectedDate || d.createdAt;
+        if (!dt) continue;
+        const dStr = new Date(dt).toISOString().split('T')[0];
+        if (!dateMap[dStr]) dateMap[dStr] = { date: dStr, claim_count: 0, avg_sentiment: narObj.analysis?.sentiment || 0, sources: new Set() };
+        dateMap[dStr].claim_count += 1;
+        if (d.source) dateMap[dStr].sources.add(d.source);
+      }
+      timeline = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date)).map(p => ({
+        ...p,
+        sources: Array.from(p.sources)
+      }));
+    }
+  }
+
+  let trend = narObj.trend || narObj.analysis?.trend || narObj.analysis?.recurrence;
+  if (!trend || trend === 'stable' || trend === 'increasing' || trend === 'decreasing') {
+    if (trend === 'increasing') trend = 'Rising';
+    else if (trend === 'decreasing') trend = 'Declining';
+    else if (trend === 'stable') {
+      trend = timeline.length >= 2 ? 'Stable' : 'Insufficient Data';
+    } else {
+      trend = timeline.length >= 2 ? 'Stable' : 'Insufficient Data';
+    }
+  }
+
+  narObj.trend = trend;
+  narObj.timeline = timeline;
+  if (!narObj.analysis) narObj.analysis = {};
+  narObj.analysis.trend = trend;
+  if (!narObj.analysis.temporal_information) narObj.analysis.temporal_information = {};
+  narObj.analysis.temporal_information.timeline = timeline;
+
+  return narObj;
+};
+
 // @desc    Get narratives
 // @route   GET /api/narratives
 // @access  Private
 const getNarratives = async (req, res) => {
   try {
-    const { entity_id, domain, category, search } = req.query;
-    const query = { isPublished: true };
+    const { 
+      entity_id, 
+      domain, 
+      category, 
+      search, 
+      is_published, 
+      status, 
+      include_candidates,
+      direction,
+      priority,
+      positive_significance
+    } = req.query;
+    const query = {};
+    if (is_published === 'true') {
+      query.isPublished = true;
+    }
     if (entity_id) {
       query.entityId = entity_id;
     }
@@ -56,9 +261,30 @@ const getNarratives = async (req, res) => {
       const safeSearch = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [{ description: new RegExp(safeSearch, 'i') }, { intelligence: new RegExp(safeSearch, 'i') }, { topic: new RegExp(safeSearch, 'i') }];
     }
+
+    if (direction && direction !== 'all') {
+      query.direction = direction;
+    }
+    if (priority && priority !== 'all') {
+      query.priority = priority;
+    }
+    if (positive_significance && positive_significance !== 'all') {
+      query.positiveSignificance = positive_significance;
+    }
+
+    // Low-evidence filtering: by default hide candidate observations from main dashboard
+    if (status === 'candidate') {
+      query.isEligibleForDisplay = false;
+    } else if (status === 'all' || include_candidates === 'true') {
+      // include all
+    } else {
+      // Default: only established / display-eligible narratives
+      query.isEligibleForDisplay = { $ne: false };
+    }
+
     const narratives = await Narrative.find(query)
       .sort({ 'analysis.strength': -1, lastObservedAt: -1 })
-      .limit(50);
+      .limit(100);
     res.json(narratives);
   } catch (error) {
     console.error('Narratives error:', error);
@@ -73,9 +299,10 @@ const getNarratives = async (req, res) => {
 // @access  Private
 const getNarrativeById = async (req, res) => {
   try {
-    const narrative = await Narrative.findOne({ _id: req.params.id, isPublished: true });
+    const narrative = await Narrative.findById(req.params.id);
     if (narrative) {
-      res.json(narrative);
+      const populated = await populateNarrativeTimeline(narrative);
+      res.json(populated);
     } else {
       res.status(404).json({ message: 'Narrative not found' });
     }
@@ -90,11 +317,39 @@ const getNarrativeById = async (req, res) => {
 const getProcessingStatus = async (req, res) => {
   try {
     const { entity_id } = req.query;
+
+    // Auto-reconcile orphaned processing/pending documents if no worker is actively running
+    const hasActiveWorker = Array.from(activeRuns.values()).some(run => !entity_id || run.entityId === entity_id);
+    if (!hasActiveWorker) {
+      const activeJobQuery = { status: { $in: ['PROCESSING', 'STOP_REQUESTED'] } };
+      if (entity_id) activeJobQuery.entityId = entity_id;
+      const runningJobCount = await ProcessingJob.countDocuments(activeJobQuery);
+      if (runningJobCount === 0) {
+        const cleanupQuery = { processingStatus: { $in: ['processing', 'pending'] } };
+        if (entity_id) cleanupQuery.entityId = entity_id;
+        await Document.updateMany(cleanupQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
+      }
+    }
+
     const matchStage = entity_id ? { $match: { entityId: entity_id } } : { $match: {} };
 
-    const stats = await Document.aggregate([
-      matchStage,
-      { $group: { _id: "$processingStatus", count: { $sum: 1 } } }
+    const [stats, sourceStats] = await Promise.all([
+      Document.aggregate([
+        matchStage,
+        { $group: { _id: "$processingStatus", count: { $sum: 1 } } }
+      ]),
+      Document.aggregate([
+        matchStage,
+        {
+          $group: {
+            _id: {
+              source: { $ifNull: ["$source", "Unknown"] },
+              status: { $ifNull: ["$processingStatus", "not_processed"] }
+            },
+            count: { $sum: 1 }
+          }
+        }
+      ])
     ]);
     
     const statusMap = {
@@ -114,9 +369,26 @@ const getProcessingStatus = async (req, res) => {
       total += s.count;
     });
 
+    // Compile source-wise breakdown
+    const sourceMap = {};
+    sourceStats.forEach(item => {
+      const srcName = item._id.source || 'Unknown';
+      const st = item._id.status || 'not_processed';
+      if (!sourceMap[srcName]) {
+        sourceMap[srcName] = { source: srcName, total: 0, completed: 0, unprocessed: 0, processing: 0, failed: 0 };
+      }
+      sourceMap[srcName].total += item.count;
+      if (st === 'completed') sourceMap[srcName].completed += item.count;
+      else if (st === 'processing') sourceMap[srcName].processing += item.count;
+      else if (st === 'failed') sourceMap[srcName].failed += item.count;
+      else sourceMap[srcName].unprocessed += item.count;
+    });
+    const sourceBreakdown = Object.values(sourceMap).sort((a, b) => b.total - a.total);
+
     res.json({
       total,
       breakdown: statusMap,
+      sourceBreakdown,
       aiIntegrationEnabled: true,
       message: 'AI processing pipeline is active and ready to process batches.'
     });
@@ -131,30 +403,136 @@ const getProcessingStatus = async (req, res) => {
 // @access  Private/Admin
 const getJobStatus = async (req, res) => {
   try {
-    const { entity_id } = req.query;
+    const { entity_id, batch_id } = req.query;
     const query = {};
     if (entity_id) {
       query.entityId = entity_id;
     }
-    let jobs = await ProcessingJob.find(query).sort({ createdAt: -1 }).limit(10);
-    let currentJob = null;
+    let jobs = await ProcessingJob.find(query).sort({ createdAt: -1 }).limit(20);
     
-    // Find the most recent job that still has documents in the database
+    const availableBatches = [];
+    let candidateJob = null;
+
     for (const job of jobs) {
-      if (job.batchId) {
-        const docCount = await Document.countDocuments({ batchId: job.batchId });
-        if (docCount > 0) {
-          currentJob = job;
-          break;
+      if (!job.batchId) continue;
+      const actualTotal = await Document.countDocuments({ batchId: job.batchId });
+      if (actualTotal === 0) continue;
+
+      const actualCompleted = await Document.countDocuments({ batchId: job.batchId, processingStatus: 'completed' });
+      const actualFailed = await Document.countDocuments({ batchId: job.batchId, processingStatus: 'failed' });
+      const actualUnprocessed = await Document.countDocuments({ batchId: job.batchId, processingStatus: { $in: ['not_processed', 'pending'] } });
+
+      let needsSave = false;
+      if (job.totalDocuments !== actualTotal) {
+        job.totalDocuments = actualTotal;
+        needsSave = true;
+      }
+      if (job.processedDocuments !== actualCompleted) {
+        job.processedDocuments = actualCompleted;
+        needsSave = true;
+      }
+      if (job.failedDocuments !== actualFailed) {
+        job.failedDocuments = actualFailed;
+        needsSave = true;
+      }
+      if (actualUnprocessed === 0 && actualCompleted === actualTotal && !['PROCESSING', 'STOP_REQUESTED'].includes(job.status)) {
+        if (job.status !== 'COMPLETED') {
+          job.status = 'COMPLETED';
+          needsSave = true;
+        }
+      } else if (actualUnprocessed > 0 && !['PROCESSING', 'STOP_REQUESTED'].includes(job.status)) {
+        if (job.status === 'COMPLETED') {
+          // Reconcile: A batch with remaining unprocessed documents is PARTIALLY PROCESSED / READY, not COMPLETED
+          job.status = 'READY';
+          needsSave = true;
+        }
+      }
+      if (needsSave && job.entityId) {
+        await job.save();
+      }
+
+      availableBatches.push({
+        batchId: job.batchId,
+        createdAt: job.createdAt,
+        totalDocuments: actualTotal,
+        processedDocuments: actualCompleted,
+        unprocessedDocuments: actualUnprocessed,
+        failedDocuments: actualFailed,
+        status: job.status
+      });
+
+      // Priority selection for candidateJob:
+      // 1. Explicitly requested batch_id match
+      if (batch_id && job.batchId === batch_id) {
+        candidateJob = job;
+      } else if (!candidateJob) {
+        // 2. Actively running or stopping job
+        if (['PROCESSING', 'STOP_REQUESTED'].includes(job.status)) {
+          candidateJob = job;
+        } else if (actualUnprocessed > 0) {
+          // 3. Batch with unprocessed documents waiting
+          candidateJob = job;
         }
       }
     }
-    
+
+    let currentJob = candidateJob || (jobs.length > 0 ? jobs[0] : null);
+
     if (!currentJob) {
       // Return a dummy empty job if no valid batch exists
       currentJob = { status: 'IDLE', totalDocuments: 0, processedDocuments: 0 };
+    } else if (currentJob.status === 'PROCESSING' || currentJob.status === 'STOP_REQUESTED') {
+      // Auto-reconciliation: If job is marked PROCESSING / STOP_REQUESTED but has no active in-memory worker
+      // (e.g. backend service was restarted or worker crashed), reconcile it immediately.
+      const isActivelyRunning = activeRuns.has(currentJob._id.toString());
+      if (!isActivelyRunning) {
+        console.log(`[JobStatus] Detected stale processing job ${currentJob._id} without active worker. Reconciling...`);
+        const wasStopping = currentJob.stopRequested || currentJob.status === 'STOP_REQUESTED';
+        currentJob.status = wasStopping ? 'CANCELLED' : 'STOPPED';
+        currentJob.stopRequested = false;
+        currentJob.completedAt = new Date();
+        if (wasStopping) {
+          currentJob.cancelledAt = currentJob.cancelledAt || new Date();
+          currentJob.cancellationReason = currentJob.cancellationReason || 'Cancelled (reconciled after service interruption)';
+        } else {
+          currentJob.error = 'Processing was interrupted (service restarted or worker stopped)';
+        }
+
+        if (!currentJob.entityId && currentJob.batchId) {
+          const sampleDoc = await Document.findOne({ batchId: currentJob.batchId, entityId: { $exists: true, $ne: null } });
+          if (sampleDoc?.entityId) {
+            currentJob.entityId = sampleDoc.entityId;
+          }
+        }
+        
+        // Revert any lingering 'processing' or 'pending' documents in this batch
+        const resetQuery = { processingStatus: { $in: ['processing', 'pending'] } };
+        if (currentJob.batchId) resetQuery.batchId = currentJob.batchId;
+        if (currentJob.entityId) resetQuery.entityId = currentJob.entityId;
+        await Document.updateMany(resetQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
+        
+        if (currentJob.entityId) {
+          await currentJob.save();
+        } else {
+          await ProcessingJob.updateOne(
+            { _id: currentJob._id },
+            {
+              $set: {
+                status: currentJob.status,
+                stopRequested: false,
+                completedAt: currentJob.completedAt,
+                cancelledAt: currentJob.cancelledAt,
+                cancellationReason: currentJob.cancellationReason,
+                error: currentJob.error
+              }
+            }
+          );
+        }
+      }
     }
-    res.json(currentJob);
+    const jobObj = currentJob.toObject ? currentJob.toObject() : { ...currentJob };
+    jobObj.availableBatches = availableBatches;
+    res.json(jobObj);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error fetching job status' });
@@ -166,24 +544,121 @@ const getJobStatus = async (req, res) => {
 // @access  Private/Admin
 const stopProcessingJob = async (req, res) => {
   try {
-    const { entityId } = req.body;
-    const query = entityId ? { entityId } : {};
-    let job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
-    if (job && job.status === 'PROCESSING') {
-      job.stopRequested = true;
-      await job.save();
+    const { entityId, batchId, force } = req.body;
+    const query = {};
+    if (entityId) query.entityId = entityId;
+    if (batchId) query.batchId = batchId;
+
+    // Look for currently active or stopping jobs first
+    let job = await ProcessingJob.findOne({
+      ...query,
+      status: { $in: ['PROCESSING', 'STOP_REQUESTED'] }
+    }).sort({ createdAt: -1 });
+
+    if (!job) {
+      // If none active, find latest job
+      job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
     }
-    res.json({ success: true, message: 'Stop requested' });
+
+    if (!job || ['COMPLETED', 'CANCELLED', 'STOPPED', 'FAILED', 'IDLE'].includes(job.status)) {
+      return res.json({
+        success: true,
+        message: 'Processing is not running or already stopped.',
+        status: job?.status || 'IDLE',
+        job
+      });
+    }
+
+    // Immediately mark stopRequested and STOP_REQUESTED in MongoDB
+    job.stopRequested = true;
+    job.status = 'STOP_REQUESTED';
+    await job.save();
+
+    const activeRun = activeRuns.get(job._id.toString());
+
+    if (activeRun) {
+      // Signal Python AI service to halt processing
+      try {
+        const aiService = (await import('../services/aiService.js')).default;
+        aiService.cancelBatch(activeRun.runId).catch(err => {
+          console.warn('[StopJob] Non-fatal AI cancel signal warning:', err.message);
+        });
+      } catch (e) {}
+
+      // Abort in-flight Axios HTTP request
+      try {
+        activeRun.abortController.abort();
+      } catch (e) {}
+    }
+
+    if (force || !activeRun) {
+      // If force requested or no active worker in memory, finalize directly to CANCELLED
+      job.status = 'CANCELLED';
+      job.stopRequested = false;
+      job.cancelledAt = new Date();
+      job.completedAt = new Date();
+      job.cancellationReason = force ? 'Force stopped by administrator' : 'Cancelled by administrator';
+
+      if (!job.entityId && job.batchId) {
+        const sampleDoc = await Document.findOne({ batchId: job.batchId });
+        if (sampleDoc?.entityId) job.entityId = sampleDoc.entityId;
+      }
+      if (job.entityId) {
+        await job.save();
+      } else {
+        await ProcessingJob.updateOne({ _id: job._id }, { $set: { status: 'CANCELLED', stopRequested: false, cancelledAt: job.cancelledAt, completedAt: job.completedAt, cancellationReason: job.cancellationReason } });
+      }
+
+      // Reset documents from processing back to not_processed
+      const docQuery = { processingStatus: { $in: ['processing', 'pending'] } };
+      if (job.batchId) docQuery.batchId = job.batchId;
+      if (job.entityId) docQuery.entityId = job.entityId;
+      await Document.updateMany(docQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
+
+      activeRuns.delete(job._id.toString());
+
+      return res.json({
+        success: true,
+        message: 'Processing cancelled successfully.',
+        status: 'CANCELLED',
+        job
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Stop requested. Cancellation in progress.',
+      status: 'STOP_REQUESTED',
+      job
+    });
   } catch (error) {
+    console.error('Stop processing error:', error);
     res.status(500).json({ message: 'Server error stopping job' });
   }
 };
 
 // Background worker
-const processDocumentsBackground = async (jobId) => {
+const processDocumentsBackground = async (jobId, runId) => {
+  let activeRun = activeRuns.get(jobId.toString());
+  if (!activeRun) {
+    const generatedRunId = runId || ('RUN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+    activeRun = {
+      runId: generatedRunId,
+      jobId: jobId.toString(),
+      abortController: new AbortController(),
+      startedAt: new Date()
+    };
+    activeRuns.set(jobId.toString(), activeRun);
+  }
+
+  const effectiveRunId = activeRun.runId;
+
   try {
     let job = await ProcessingJob.findById(jobId);
-    if (!job) return;
+    if (!job) {
+      activeRuns.delete(jobId.toString());
+      return;
+    }
 
     // Batch size allows processing up to 10 documents per AI batch chunk,
     // while honoring smaller requested limits (e.g., 1, 2, 4, 5).
@@ -192,18 +667,49 @@ const processDocumentsBackground = async (jobId) => {
     while (true) {
       // Reload job to check for stop request
       job = await ProcessingJob.findById(jobId);
-      if (job.stopRequested) {
-        job.status = 'STOPPED';
+      if (!job) break;
+
+      const isCancelled = job.stopRequested || job.status === 'STOP_REQUESTED' || activeRun.abortController.signal.aborted;
+      if (isCancelled) {
+        job.status = 'CANCELLED';
+        job.stopRequested = false;
+        job.cancelledAt = new Date();
         job.completedAt = new Date();
+        job.cancellationReason = 'Cancelled by administrator';
         await job.save();
+
+        // Revert any lingering 'processing' or 'pending' documents in this batch to not_processed
+        const resetQuery = { processingStatus: { $in: ['processing', 'pending'] } };
+        if (job.batchId) resetQuery.batchId = job.batchId;
+        if (job.entityId) resetQuery.entityId = job.entityId;
+        await Document.updateMany(resetQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
+
+        activeRuns.delete(jobId.toString());
         return;
       }
       
       if (job.processedDocuments >= job.requestedDocuments) {
-        // We reached the limit for this run
-        job.status = 'COMPLETED'; // UI uses COMPLETED to show summary, then allows starting again
+        // We reached the configured target limit for this run
+        const remainingDocsCount = await Document.countDocuments({
+          batchId: job.batchId,
+          processingStatus: { $in: ['not_processed', 'pending', 'failed'] }
+        });
+
+        const isCancelled = job.stopRequested || job.status === 'STOP_REQUESTED';
+        if (isCancelled) {
+          job.status = 'CANCELLED';
+          job.cancelledAt = new Date();
+          job.cancellationReason = 'Cancelled by administrator';
+        } else if (remainingDocsCount === 0) {
+          // All documents in this batch have reached terminal state -> COMPLETED
+          job.status = 'COMPLETED';
+        } else {
+          // Current run target finished, but batch has remaining unprocessed documents -> READY for next chunk
+          job.status = 'READY';
+        }
         job.completedAt = new Date();
         await job.save();
+        activeRuns.delete(jobId.toString());
         return;
       }
 
@@ -219,9 +725,23 @@ const processDocumentsBackground = async (jobId) => {
       const unprocessedDocs = await Document.find(query).limit(currentBatchSize);
 
       if (unprocessedDocs.length === 0) {
-        job.status = 'COMPLETED';
+        const remainingDocsCount = await Document.countDocuments({
+          batchId: job.batchId,
+          processingStatus: { $in: ['not_processed', 'pending', 'failed'] }
+        });
+        const isCancelled = job.stopRequested || job.status === 'STOP_REQUESTED';
+        if (isCancelled) {
+          job.status = 'CANCELLED';
+          job.cancelledAt = new Date();
+          job.cancellationReason = 'Cancelled by administrator';
+        } else if (remainingDocsCount === 0) {
+          job.status = 'COMPLETED';
+        } else {
+          job.status = 'READY';
+        }
         job.completedAt = new Date();
         await job.save();
+        activeRuns.delete(jobId.toString());
         return;
       }
 
@@ -259,7 +779,9 @@ const processDocumentsBackground = async (jobId) => {
         claim_ids: n.supportingEvidence?.claim_ids || [],
         document_ids: n.supportingEvidence?.document_ids || [],
         sources: n.supportingEvidence?.sources || [],
-        sentiment: n.analysis?.sentiment || 0.0
+        sentiment: n.analysis?.sentiment || 0.0,
+        temporal_information: n.analysis?.temporal_information || {},
+        timeline: n.analysis?.temporal_information?.timeline || n.analysis?.timeline || []
       }));
 
       // Fetch entity context
@@ -286,15 +808,69 @@ const processDocumentsBackground = async (jobId) => {
       let aiResponse;
       try {
         const aiService = (await import('../services/aiService.js')).default;
-        aiResponse = await aiService.processBatch(formattedDocs, formattedExisting, entityContext, formattedTopics);
+        aiResponse = await aiService.processBatch(
+          formattedDocs, 
+          formattedExisting, 
+          entityContext, 
+          formattedTopics,
+          { runId: effectiveRunId, signal: activeRun.abortController.signal }
+        );
       } catch (aiErr) {
-        // AI Error: Mark only this current sub-batch documents as failed
+        // Check if error was caused by cancellation
+        const wasCancelled = aiErr.isCancelled || 
+          activeRun.abortController.signal.aborted || 
+          job.stopRequested || 
+          job.status === 'STOP_REQUESTED';
+
+        if (wasCancelled) {
+          console.log(`[BackgroundWorker] Intercepted cancellation during AI batch processing for job ${jobId}.`);
+          // Revert documents back to not_processed
+          await Document.updateMany(
+            { _id: { $in: docIds }, processingStatus: { $in: ['processing', 'pending'] } },
+            { $set: { processingStatus: 'not_processed', processingStartedAt: null } }
+          );
+
+          job.status = 'CANCELLED';
+          job.stopRequested = false;
+          job.cancelledAt = new Date();
+          job.completedAt = new Date();
+          job.cancellationReason = 'Cancelled by administrator';
+          await job.save();
+          activeRuns.delete(jobId.toString());
+          return;
+        }
+
+        // Real AI Error: Mark only this current sub-batch documents as failed
         await Document.updateMany({ _id: { $in: docIds } }, { $set: { processingStatus: 'failed', processingError: aiErr.message } });
         job.status = 'FAILED';
         job.error = aiErr.message;
         job.failedDocuments = (job.failedDocuments || 0) + docIds.length;
         job.completedAt = new Date();
         await job.save();
+        activeRuns.delete(jobId.toString());
+        return;
+      }
+
+      // Check if cancellation occurred while AI was executing or if AI returned cancelled status
+      const wasCancelledPostAI = aiResponse?.status === 'cancelled' ||
+        activeRun.abortController.signal.aborted ||
+        job.stopRequested ||
+        job.status === 'STOP_REQUESTED';
+
+      if (wasCancelledPostAI) {
+        console.log(`[BackgroundWorker] AI response indicated cancellation for job ${jobId}. Halting and preserving clean state.`);
+        await Document.updateMany(
+          { _id: { $in: docIds }, processingStatus: { $in: ['processing', 'pending'] } },
+          { $set: { processingStatus: 'not_processed', processingStartedAt: null } }
+        );
+
+        job.status = 'CANCELLED';
+        job.stopRequested = false;
+        job.cancelledAt = new Date();
+        job.completedAt = new Date();
+        job.cancellationReason = 'Cancelled by administrator';
+        await job.save();
+        activeRuns.delete(jobId.toString());
         return;
       }
 
@@ -316,25 +892,77 @@ const processDocumentsBackground = async (jobId) => {
             ? await Document.find({ _id: { $in: referencedDocumentIds } }).limit(20)
             : [];
           const risk = detectSecurityRisk(nar, sourceDocuments);
-          const severity = classifySeverity(nar, risk);
+          const classification = classifyNarrative(nar, sourceDocuments, risk);
+
+          const cCount = nar.analysis?.claim_count || 0;
+          const sCount = nar.analysis?.source_count || (nar.supporting_evidence?.sources?.length || 0);
+          const strength = nar.analysis?.strength || 0;
+          const isSecurityRisk = classification.isSecurityRisk || classification.priority === 'critical';
+
+          // Display eligibility: low-evidence (1 claim, 1 source) kept as candidate observation
+          // Elevated security risk requires immediate visibility, but normal high priority negative complaints do NOT bypass evidence criteria
+          const isEligible = isSecurityRisk
+            ? true
+            : (nar.is_eligible !== undefined 
+                ? nar.is_eligible 
+                : ((sCount >= 2) || (cCount >= 2 && strength >= 0.35)));
+          const displayStatus = isEligible ? 'established' : 'candidate';
+          const eligibilityReason = isSecurityRisk
+            ? 'Safety-critical observation requires immediate operational visibility'
+            : (nar.eligibility_reason || (isEligible 
+                ? 'Corroborated by multiple sources or claims' 
+                : 'Single claim from single source - retained as candidate observation'));
+
+          // Clean topic to ensure no entity or domain prefixes/suffixes
+          const cleanTopic = sanitizeTopicName(nar.topic, entityObj?.name, entityObj?.domain);
+
+          // Standardize trend classification
+          let narTrend = nar.trend || nar.analysis?.trend || nar.analysis?.recurrence || 'Insufficient Data';
+          if (narTrend === 'increasing') narTrend = 'Rising';
+          else if (narTrend === 'decreasing') narTrend = 'Declining';
+          else if (narTrend === 'stable') narTrend = 'Stable';
+
           const updateFields = {
             narrativeId: nar.narrative_id,
             entityId: job.entityId,
-            topic: nar.topic || 'Unknown',
+            topic: cleanTopic,
             description: nar.narrative,
             intelligence: nar.intelligence || '',
             recommendation: nar.recommendation || '',
+            trend: narTrend,
+            displayStatus: displayStatus,
+            isEligibleForDisplay: isEligible,
+            eligibilityReason: eligibilityReason,
+            direction: classification.direction,
+            priority: classification.priority,
+            positiveSignificance: classification.positiveSignificance,
+            classificationReason: classification.classificationReason,
+            impactIndicators: classification.impactIndicators,
             supportingEvidence: nar.supporting_evidence || {},
-            analysis: nar.analysis || {},
+            analysis: {
+              ...(nar.analysis || {}),
+              trend: narTrend,
+              display_status: displayStatus,
+              is_eligible: isEligible,
+              eligibility_reason: eligibilityReason,
+              direction: classification.direction,
+              priority: classification.priority,
+              positive_significance: classification.positiveSignificance,
+              classification_reason: classification.classificationReason,
+              impact_indicators: classification.impactIndicators
+            },
             lastObservedAt: new Date(),
-            ...severity,
+            severityLevel: classification.severityLevel,
+            severityReason: classification.severityReason,
+            isSecurityRisk: classification.isSecurityRisk,
+            securityRiskCategory: classification.securityRiskCategory,
           };
           // A new critical finding always returns to moderation, even if an
           // earlier version of the same narrative had been published.
           const hasNewEvidence = referencedDocumentIds.some(id =>
             !(existing?.supportingEvidence?.document_ids || []).map(String).includes(String(id))
           );
-          if (severity.severityLevel === 'critical' && (!existing || existing.severityLevel !== 'critical' || hasNewEvidence)) {
+          if (classification.priority === 'critical' && (!existing || existing.priority !== 'critical' || hasNewEvidence)) {
             updateFields.publicationStatus = 'Pending Review';
             updateFields.isPublished = false;
           }
@@ -345,18 +973,13 @@ const processDocumentsBackground = async (jobId) => {
             { upsert: true, new: true }
           );
 
-          if (risk) {
-            const savedNarrative = await Narrative.findOne({ narrativeId: nar.narrative_id });
-            await upsertSecurityAlert({ risk, narrative: savedNarrative, narrativeOutput: nar, sourceDocuments });
-          }
-
           // Save new topic if the AI decided to create one
-          if (nar.is_new_topic && nar.topic && nar.topic !== 'Unknown') {
+          if (cleanTopic && cleanTopic !== 'Unknown' && cleanTopic !== 'General') {
             try {
               const topicIdToSave = nar.topic_id || `TOPIC_${Date.now()}`;
               await Topic.updateOne(
-                { entityId: job.entityId, name: nar.topic },
-                { $set: { topicId: topicIdToSave, name: nar.topic, entityId: job.entityId } },
+                { entityId: job.entityId, name: cleanTopic },
+                { $set: { topicId: topicIdToSave, name: cleanTopic, entityId: job.entityId } },
                 { upsert: true }
               );
             } catch (err) {
@@ -423,88 +1046,253 @@ const processDocumentsBackground = async (jobId) => {
     try {
       let job = await ProcessingJob.findById(jobId);
       if (job) {
-        job.status = 'FAILED';
-        job.error = err.message;
+        const isCancelled = job.stopRequested || job.status === 'STOP_REQUESTED';
+        job.status = isCancelled ? 'CANCELLED' : 'FAILED';
+        if (isCancelled) {
+          job.cancelledAt = new Date();
+          job.cancellationReason = 'Cancelled by administrator';
+        } else {
+          job.error = err.message;
+        }
         job.completedAt = new Date();
         await job.save();
       }
     } catch(e){}
+  } finally {
+    activeRuns.delete(jobId.toString());
   }
 };
 
-const detectSecurityRisk = (narrative, documents) => {
-  const narrativeText = [narrative.narrative, narrative.intelligence, narrative.recommendation].filter(Boolean).join(' ');
+const detectSecurityRisk = (narrative, documents = []) => {
+  const narrativeText = [narrative.narrative || narrative.description, narrative.intelligence, narrative.recommendation, narrative.topic].filter(Boolean).join(' ');
   const candidates = [
     { documentId: null, text: narrativeText },
     ...documents.map(doc => ({ documentId: doc._id.toString(), text: doc.processingText || doc.translatedText || doc.rawText || '' })),
   ];
+
+  // Prevention and awareness indicators that distinguish educational/institutional workshops from real incidents
+  const preventionRegex = /\b(prevention|preventing|workshop|seminar|awareness|counseling|counselor|helpline|anti[- ]suicide|committee|session|training|drill|hypothetical|guidelines|mental health awareness|talk on)\b/i;
+  // Specific markers of a completed/ongoing tragic incident
+  const actualIncidentMarkers = /\b(died|found dead|committed|hanged|jumped|body found|dead body|passed away|lost (their|his|her) life|critical condition|hospitalized|tragic demise)\b/i;
+
   const selfHarm = /\b(suicid(e|al)|self[- ]harm|attempted suicide|took (their|his|her) own life|died by suicide)\b/i;
   const selfHarmEvent = /\b(death|died|dead|case|incident|attempt|attempted|found|reported|alleged|student|faculty|staff|institution|campus)\b/i;
-  const selfHarmMatches = candidates.filter(candidate => selfHarm.test(candidate.text) && selfHarmEvent.test(candidate.text));
+  
+  const selfHarmMatches = candidates.filter(candidate => {
+    if (!selfHarm.test(candidate.text)) return false;
+    const hasPrevention = preventionRegex.test(candidate.text);
+    const hasTragedy = actualIncidentMarkers.test(candidate.text);
+    if (hasPrevention && !hasTragedy) return false;
+    return selfHarmEvent.test(candidate.text);
+  });
+
   if (selfHarmMatches.length) {
-    return { eventType: 'self_harm', severity: 'critical', title: 'Possible suicide or self-harm incident', reason: 'Processed narrative or source text mentions suicide or self-harm together with an incident, death, attempt, or institutional context. Verify the source and recency before treating this as confirmed.', matchedDocumentIds: selfHarmMatches.map(item => item.documentId).filter(Boolean) };
+    return {
+      eventType: 'self_harm',
+      severity: 'critical',
+      title: 'Possible suicide or self-harm incident',
+      reason: 'Processed narrative or source text mentions suicide or self-harm together with an incident, death, attempt, or institutional context. Verify the source and recency before treating this as confirmed.',
+      matchedDocumentIds: selfHarmMatches.map(item => item.documentId).filter(Boolean)
+    };
   }
 
   const immediateThreat = /\b(active shooter|bomb threat|threat to (kill|attack)|imminent attack|shooting|stabbing|mass casualty|terrorist attack)\b/i;
-  const threatMatches = candidates.filter(candidate => immediateThreat.test(candidate.text));
+  const threatMatches = candidates.filter(candidate => {
+    if (!immediateThreat.test(candidate.text)) return false;
+    if (preventionRegex.test(candidate.text) && !actualIncidentMarkers.test(candidate.text)) return false;
+    return true;
+  });
+
   if (threatMatches.length) {
-    return { eventType: 'violence_threat', severity: 'critical', title: 'Possible immediate violence or threat', reason: 'Processed narrative or source text contains language associated with an immediate threat or serious violent incident. Human review is required.', matchedDocumentIds: threatMatches.map(item => item.documentId).filter(Boolean) };
+    return {
+      eventType: 'violence_threat',
+      severity: 'critical',
+      title: 'Possible immediate violence or threat',
+      reason: 'Processed narrative or source text contains language associated with an immediate threat or serious violent incident. Human review is required.',
+      matchedDocumentIds: threatMatches.map(item => item.documentId).filter(Boolean)
+    };
   }
 
   const seriousSafetyEvent = /\b(killed|fatality|fatal|explosion|fire|outbreak|emergency evacuation)\b/i;
-  const safetyMatches = candidates.filter(candidate => seriousSafetyEvent.test(candidate.text) && /\b(institution|campus|school|university|college|hospital|facility|attack|incident|emergency)\b/i.test(candidate.text));
+  const safetyMatches = candidates.filter(candidate =>
+    seriousSafetyEvent.test(candidate.text) &&
+    /\b(institution|campus|school|university|college|hospital|facility|attack|incident|emergency)\b/i.test(candidate.text)
+  );
   if (safetyMatches.length) {
-    return { eventType: 'public_safety', severity: 'high', title: 'Possible serious public safety incident', reason: 'Processed narrative or source text may describe a serious safety event connected to an institution. Verify before acting.', matchedDocumentIds: safetyMatches.map(item => item.documentId).filter(Boolean) };
+    return {
+      eventType: 'public_safety',
+      severity: 'high',
+      title: 'Possible serious public safety incident',
+      reason: 'Processed narrative or source text may describe a serious safety event connected to an institution. Verify before acting.',
+      matchedDocumentIds: safetyMatches.map(item => item.documentId).filter(Boolean)
+    };
   }
   return null;
 };
 
-const classifySeverity = (narrative, risk) => {
-  if (risk) return { severityLevel: risk.severity, severityReason: risk.reason };
-  const text = [narrative.narrative, narrative.intelligence, narrative.recommendation].filter(Boolean).join(' ');
-  const high = /violence|violent|crisis|fatal|killed|attack|emergency|outbreak/i;
-  if (high.test(text)) return { severityLevel: 'high', severityReason: 'Potential violence, emergency, or crisis language detected.' };
-  return { severityLevel: 'normal', severityReason: '' };
-};
+const classifyNarrative = (narrative, documents = [], securityRisk = null) => {
+  const risk = securityRisk || detectSecurityRisk(narrative, documents);
+  const narrativeText = [
+    narrative.narrative || narrative.description,
+    narrative.intelligence,
+    narrative.recommendation,
+    narrative.topic
+  ].filter(Boolean).join(' ');
 
-const upsertSecurityAlert = async ({ risk, narrative, narrativeOutput, sourceDocuments }) => {
-  if (!narrative) return;
-  const alertKey = `${narrative.narrativeId}:${risk.eventType}`;
-  const signalPattern = /suicid(e|al)|self[- ]harm|attempted suicide|took (their|his|her) own life|died by suicide|active shooter|bomb threat|threat to (kill|attack)|imminent attack|shooting|stabbing|mass casualty|terrorist attack|killed|fatality|fatal|explosion|fire|outbreak|emergency evacuation/i;
-  const relevantDocuments = risk.matchedDocumentIds?.length
-    ? sourceDocuments.filter(doc => risk.matchedDocumentIds.includes(doc._id.toString()))
-    : sourceDocuments;
-  const evidence = relevantDocuments.slice(0, 10).map(doc => {
-    const text = doc.processingText || doc.translatedText || doc.rawText || '';
-    const match = signalPattern.exec(text);
-    const start = match ? Math.max(0, match.index - 140) : 0;
-    const excerpt = text.slice(start, start + 360).trim();
+  const docTexts = (documents || []).map(d => d.processingText || d.translatedText || d.rawText || '').join(' ');
+  const combinedText = `${narrativeText} ${docTexts}`.toLowerCase();
+
+  const claimCount = narrative.analysis?.claim_count || narrative.supportingEvidence?.claim_ids?.length || 1;
+  const sourceCount = narrative.analysis?.source_count || narrative.supportingEvidence?.sources?.length || 1;
+  const trend = narrative.trend || narrative.analysis?.trend || 'Stable';
+  const sentimentVal = narrative.analysis?.sentiment !== undefined ? Number(narrative.analysis.sentiment) : 0;
+
+  // Collect categorical impact indicators
+  const indicators = new Set(narrative.impactIndicators || narrative.analysis?.impact_indicators || []);
+
+  const hasPlacement = /\b(placement|placed|package|lpa|ctc|recruiter|recruitment|hiring|unplaced|internship|job offer|highest package)\b/i.test(combinedText);
+  const hasInfrastructure = /\b(hostel|water|mess|food poisoning|electricity|washroom|facility|infrastructure|canteen|hygiene|cleanliness|drinking water)\b/i.test(combinedText);
+  const hasAcademic = /\b(faculty|professors|curriculum|exam|syllabus|accreditation|grading|classes|teaching|prof|attendance)\b/i.test(combinedText);
+  const hasAchievement = /\b(rank|nirf|hackathon|winner|record|award|patent|grant|milestone|achievement|championship)\b/i.test(combinedText);
+
+  if (hasPlacement) indicators.add('placement_impact');
+  if (hasInfrastructure) indicators.add('infrastructure');
+  if (hasAcademic) indicators.add('academic');
+  if (hasAchievement) indicators.add('achievement');
+  if (claimCount >= 3 || sourceCount >= 2) indicators.add('recurring');
+
+  // Safety-critical override
+  if (risk && risk.severity === 'critical') {
+    indicators.add('safety_critical');
     return {
-      documentId: doc._id.toString(), source: doc.source || 'Unknown', sourceType: doc.sourceType || 'Unknown',
-      title: doc.title || '', url: doc.url || '', excerpt,
-      publishedAt: doc.publicationDate || null,
+      direction: 'negative',
+      priority: 'critical',
+      positiveSignificance: 'none',
+      classificationReason: risk.reason || 'Immediate safety, security, or self-harm concern requiring executive review.',
+      impactIndicators: Array.from(indicators),
+      severityLevel: 'critical',
+      severityReason: risk.reason || '',
+      isSecurityRisk: true,
+      securityRiskCategory: risk.eventType || 'safety'
     };
-  });
-  const previous = await SecurityAlert.findOne({ alertKey });
-  const mergedEvidence = [...(previous?.evidence || [])];
-  for (const item of evidence) {
-    if (!mergedEvidence.some(old => old.documentId === item.documentId)) mergedEvidence.push(item);
   }
-  const newlyObserved = evidence.some(item => !previous?.evidence?.some(old => old.documentId === item.documentId));
-  const sourceCount = Math.max(1, Number(narrativeOutput.analysis?.source_count || 1));
-  const confidence = Math.min(0.8, 0.35 + (sourceCount - 1) * 0.1);
-  const nextStatus = previous && newlyObserved && previous.status !== 'Open' ? 'Open' : (previous?.status || 'Open');
 
-  const alertUpdate = { $set: {
-      narrative: narrative._id, entityId: narrative.entityId, severity: risk.severity,
-      eventType: risk.eventType, title: risk.title, summary: narrative.description,
-      reason: risk.reason, confidence, evidence: mergedEvidence.slice(-10),
-      lastTriggeredAt: new Date(), status: nextStatus,
-    } };
-  if (previous && newlyObserved) alertUpdate.$inc = { occurrenceCount: 1 };
-  if (!previous) alertUpdate.$setOnInsert = { firstTriggeredAt: new Date(), occurrenceCount: 1 };
-  await SecurityAlert.findOneAndUpdate({ alertKey }, alertUpdate, { upsert: true, new: true });
+  // 1. Direction Determination
+  let direction = narrative.direction || narrative.analysis?.direction;
+  const validDirections = ['positive', 'negative', 'neutral', 'mixed'];
+  if (!direction || !validDirections.includes(direction) || direction === 'neutral') {
+    const posPattern = /\b(placement|achieve|excellent|strength|success|growth|improved|upgrade|outstanding|top|record|best|happy|satisfied|praise|award|winner|boost|supportive|modern|smooth|great)\b/gi;
+    const negPattern = /\b(poor|bad|problem|issue|complaint|deficien|fail|delay|shortage|lack|dirty|broken|protest|unplaced|crisis|harass|corrupt|scam|unhappy|dissatisfied|worse|terrible|horrible|struggle|unhygienic|worst)\b/gi;
+
+    const posMatches = (combinedText.match(posPattern) || []).length;
+    const negMatches = (combinedText.match(negPattern) || []).length;
+
+    if (posMatches >= 2 && negMatches >= 2 && Math.min(posMatches, negMatches) / Math.max(posMatches, negMatches) >= 0.4) {
+      direction = 'mixed';
+    } else if (sentimentVal <= -0.15 || negMatches > posMatches + 1) {
+      direction = 'negative';
+    } else if (sentimentVal >= 0.15 || posMatches > negMatches + 1) {
+      direction = 'positive';
+    } else if (posMatches > 0 && negMatches === 0) {
+      direction = 'positive';
+    } else if (negMatches > 0 && posMatches === 0) {
+      direction = 'negative';
+    } else {
+      direction = 'neutral';
+    }
+  }
+
+  let priority = 'none';
+  let positiveSignificance = 'none';
+  let classificationReason = '';
+
+  if (direction === 'negative') {
+    const isMajorPlacementCrisis = hasPlacement && /\b(unplaced|scam|blacklisted|boycott|fraud|zero offers|cancelled placements|package drop)\b/i.test(combinedText);
+    const isSevereInfrastructure = hasInfrastructure && /\b(contamination|poisoning|no water|uninhabitable|severe|epidemic|hospitalized|crisis|sewage)\b/i.test(combinedText);
+    const isHighRecurrence = (claimCount >= 4 || (claimCount >= 2 && sourceCount >= 2)) && sentimentVal <= -0.3;
+    const isInstitutionalCrisis = /\b(mass protest|accreditation (loss|revocation|cancelled)|paper leak|exam cancellation|widespread corruption|faculty strike)\b/i.test(combinedText);
+
+    if (isMajorPlacementCrisis) {
+      priority = 'high';
+      indicators.add('campus_wide');
+      classificationReason = 'Major placement crisis or systemic recruitment shortcoming affecting students.';
+    } else if (isSevereInfrastructure) {
+      priority = 'high';
+      indicators.add('campus_wide');
+      classificationReason = 'Severe living condition or health-impacting facility deficiency.';
+    } else if (isInstitutionalCrisis) {
+      priority = 'high';
+      indicators.add('campus_wide');
+      classificationReason = 'Major institutional controversy or administrative crisis.';
+    } else if (isHighRecurrence) {
+      priority = 'high';
+      indicators.add('campus_wide');
+      classificationReason = 'Persistent recurring grievance corroborated across multiple sources or high claim density.';
+    } else if ((hasInfrastructure || hasAcademic) && (claimCount >= 2 || /\b(broken|faulty|shortage|unhygienic|leakage|curfew|strict|poor quality|bad food)\b/i.test(combinedText))) {
+      priority = 'medium';
+      classificationReason = 'Meaningful institutional concern requiring operational or administrative resolution.';
+    } else if (claimCount >= 2 || trend === 'Rising') {
+      priority = 'medium';
+      classificationReason = 'Recurring institutional feedback requiring administrative monitoring.';
+    } else {
+      priority = 'low';
+      indicators.add('routine_feedback');
+      classificationReason = 'Routine student feedback or isolated minor inconvenience.';
+    }
+  } else if (direction === 'positive') {
+    const isMajorAchievement = hasAchievement || (hasPlacement && /\b(100%|highest|record|international|crore|top tier|dream offer|faang)\b/i.test(combinedText)) || /\b(top [0-9]+ (rank|nirf|qs)|patent|prestigious)\b/i.test(combinedText);
+    const isNotableStrengths = (claimCount >= 2 && sourceCount >= 2) || hasPlacement || hasAcademic || /\b(excellent|outstanding|great support|well organized|state of the art|successful)\b/i.test(combinedText);
+
+    if (isMajorAchievement) {
+      positiveSignificance = 'significant';
+      indicators.add('record_achievement');
+      classificationReason = 'Major institutional milestone, standout placement outcome, or prestigious achievement.';
+    } else if (isNotableStrengths) {
+      positiveSignificance = 'notable';
+      classificationReason = 'Notable highlight reflecting consistent institutional strengths or successful programs.';
+    } else {
+      positiveSignificance = 'general';
+      indicators.add('routine_feedback');
+      classificationReason = 'General positive student sentiment and routine positive feedback.';
+    }
+  } else {
+    classificationReason = direction === 'mixed'
+      ? 'Balanced multi-faceted observation containing both positive aspects and areas for improvement.'
+      : 'Factual procedural observation or informational institutional narrative.';
+  }
+
+  // Preserve backwards-compatible severityLevel
+  let legacySeverity = 'normal';
+  let legacyReason = '';
+  if (risk) {
+    legacySeverity = risk.severity;
+    legacyReason = risk.reason;
+  } else if (priority === 'critical') {
+    legacySeverity = 'critical';
+    legacyReason = classificationReason;
+  } else if (priority === 'high' && direction === 'negative') {
+    legacySeverity = 'high';
+    legacyReason = classificationReason;
+  }
+
+  return {
+    direction,
+    priority,
+    positiveSignificance,
+    classificationReason,
+    impactIndicators: Array.from(indicators),
+    severityLevel: legacySeverity,
+    severityReason: legacyReason,
+    isSecurityRisk: Boolean(risk && risk.severity === 'critical'),
+    securityRiskCategory: risk?.eventType || ''
+  };
 };
+
+const classifySeverity = (narrative, risk) => {
+  const result = classifyNarrative(narrative, [], risk);
+  return { severityLevel: result.severityLevel, severityReason: result.severityReason };
+};
+
 
 // @desc    Start AI processing job
 // @route   POST /api/processing/start
@@ -521,26 +1309,59 @@ const startProcessingJob = async (req, res) => {
     const query = {};
     if (entityId) query.entityId = entityId;
 
-    if (batchId) {
+    if (batchId && batchId !== 'all') {
       query.batchId = batchId;
       job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
     } else {
-      job = await ProcessingJob.findOne(query).sort({ createdAt: -1 });
+      // Find a job for this entity with unprocessed documents
+      const candidateJobs = await ProcessingJob.find(query).sort({ createdAt: -1 });
+      for (const cj of candidateJobs) {
+        if (cj.batchId) {
+          const unp = await Document.countDocuments({ batchId: cj.batchId, processingStatus: { $in: ['not_processed', 'pending', 'failed'] } });
+          if (unp > 0) {
+            job = cj;
+            break;
+          }
+        }
+      }
+      if (!job && candidateJobs.length > 0) {
+        job = candidateJobs[0];
+      }
     }
 
     if (!job || job.status === 'IDLE') {
       return res.status(400).json({ message: 'No valid batch found to process.' });
     }
 
+    // Ensure entityId is present before updating
+    if (!job.entityId) {
+      if (entityId) {
+        job.entityId = entityId;
+      } else if (job.batchId) {
+        const sampleDoc = await Document.findOne({ batchId: job.batchId, entityId: { $exists: true, $ne: null } });
+        if (sampleDoc?.entityId) {
+          job.entityId = sampleDoc.entityId;
+        }
+      }
+    }
+
     if (job.status === 'PROCESSING') {
       return res.status(400).json({ message: 'A processing job is already running.' });
     }
 
-    // Reset any lingering 'processing' documents from interrupted runs to pending
-    const resetQuery = { processingStatus: 'processing' };
+    // Sync current job totals with actual document counts in DB before running
+    if (job.batchId) {
+      const actualTotal = await Document.countDocuments({ batchId: job.batchId });
+      const actualCompleted = await Document.countDocuments({ batchId: job.batchId, processingStatus: 'completed' });
+      job.totalDocuments = actualTotal;
+      job.processedDocuments = actualCompleted;
+    }
+
+    // Reset any lingering 'processing' or 'pending' documents from interrupted runs to not_processed
+    const resetQuery = { processingStatus: { $in: ['processing', 'pending'] } };
     if (job.batchId) resetQuery.batchId = job.batchId;
     if (job.entityId) resetQuery.entityId = job.entityId;
-    await Document.updateMany(resetQuery, { $set: { processingStatus: 'pending' } });
+    await Document.updateMany(resetQuery, { $set: { processingStatus: 'not_processed', processingStartedAt: null } });
 
     const docQuery = { processingStatus: { $in: ['not_processed', 'pending', 'failed'] } };
     if (job.batchId) docQuery.batchId = job.batchId;
@@ -555,18 +1376,34 @@ const startProcessingJob = async (req, res) => {
       limitNum = unprocessedCount;
     }
 
+    // Generate a fresh unique runId for this execution
+    const runId = 'RUN_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+    const abortController = new AbortController();
+
     // Update job to PROCESSING with new target
+    job.runId = runId;
     job.status = 'PROCESSING';
     job.currentRunLimit = limitNum;
     job.requestedDocuments = job.processedDocuments + limitNum;
     job.failedDocuments = 0;
     job.stopRequested = false;
+    job.cancelledAt = null;
+    job.cancellationReason = null;
     job.startedAt = new Date();
     job.error = null;
     await job.save();
 
+    activeRuns.set(job._id.toString(), {
+      runId,
+      jobId: job._id.toString(),
+      batchId: job.batchId,
+      entityId: job.entityId,
+      abortController,
+      startedAt: new Date()
+    });
+
     // Start background worker
-    processDocumentsBackground(job._id);
+    processDocumentsBackground(job._id, runId);
 
     res.json({
       success: true,
@@ -580,6 +1417,237 @@ const startProcessingJob = async (req, res) => {
   }
 };
 
+const normalizeExistingNarrativesAndTopics = async () => {
+  try {
+    const narratives = await Narrative.find({});
+    for (const nar of narratives) {
+      let needsSave = false;
+      const entity = await Entity.findOne({ entityId: nar.entityId });
+      const cleanTopic = sanitizeTopicName(nar.topic, entity?.name, entity?.domain);
+      if (cleanTopic !== nar.topic) {
+        nar.topic = cleanTopic;
+        needsSave = true;
+      }
+
+      let currentTrend = nar.trend || nar.analysis?.trend || nar.analysis?.recurrence;
+      if (!currentTrend || currentTrend === 'stable' || currentTrend === 'increasing' || currentTrend === 'decreasing') {
+        const timeline = nar.analysis?.temporal_information?.timeline || [];
+        if (currentTrend === 'increasing') nar.trend = 'Rising';
+        else if (currentTrend === 'decreasing') nar.trend = 'Declining';
+        else if (timeline.length >= 2) nar.trend = 'Stable';
+        else nar.trend = 'Insufficient Data';
+        needsSave = true;
+      }
+
+      if (nar.isEligibleForDisplay === undefined || nar.displayStatus === undefined) {
+        const cCount = nar.analysis?.claim_count || 0;
+        const sCount = nar.analysis?.source_count || (nar.supportingEvidence?.sources?.length || 0);
+        const strength = nar.analysis?.strength || 0;
+        const isEligible = (sCount >= 2) || (cCount >= 2 && strength >= 0.35) || (nar.severityLevel !== 'normal');
+        nar.displayStatus = isEligible ? 'established' : 'candidate';
+        nar.isEligibleForDisplay = isEligible;
+        nar.eligibilityReason = isEligible ? 'Corroborated by multiple sources or claims' : 'Single claim from single source - retained as candidate observation';
+        needsSave = true;
+      }
+
+      if (!nar.direction || !nar.priority || (nar.direction === 'negative' && nar.priority === 'none') || (nar.direction === 'positive' && nar.positiveSignificance === 'none')) {
+        const referencedDocumentIds = (nar.supportingEvidence?.document_ids || []).filter(id => /^[a-f\d]{24}$/i.test(String(id)));
+        const sourceDocs = referencedDocumentIds.length
+          ? await Document.find({ _id: { $in: referencedDocumentIds } }).limit(20)
+          : [];
+        const risk = detectSecurityRisk(nar, sourceDocs);
+        const classification = classifyNarrative(nar, sourceDocs, risk);
+
+        nar.direction = classification.direction;
+        nar.priority = classification.priority;
+        nar.positiveSignificance = classification.positiveSignificance;
+        nar.classificationReason = classification.classificationReason;
+        nar.impactIndicators = classification.impactIndicators;
+        nar.severityLevel = classification.severityLevel;
+        nar.severityReason = classification.severityReason;
+        nar.isSecurityRisk = classification.isSecurityRisk;
+        nar.securityRiskCategory = classification.securityRiskCategory;
+        needsSave = true;
+      }
+
+      if (needsSave) {
+        if (!nar.analysis) nar.analysis = {};
+        nar.analysis.trend = nar.trend;
+        nar.analysis.display_status = nar.displayStatus;
+        nar.analysis.is_eligible = nar.isEligibleForDisplay;
+        nar.analysis.eligibility_reason = nar.eligibilityReason;
+        nar.analysis.direction = nar.direction;
+        nar.analysis.priority = nar.priority;
+        nar.analysis.positive_significance = nar.positiveSignificance;
+        nar.analysis.classification_reason = nar.classificationReason;
+        nar.analysis.impact_indicators = nar.impactIndicators;
+        await nar.save();
+      }
+    }
+
+    const topics = await Topic.find({});
+    const entities = await Entity.find({});
+    const singleEntityId = entities.length === 1 ? entities[0].entityId : null;
+
+    for (const t of topics) {
+      try {
+        let dirty = false;
+
+        // If topic record is missing entityId, attempt to recover it
+        if (!t.entityId) {
+          const matchingNar = await Narrative.findOne({
+            topic: t.name,
+            entityId: { $exists: true, $ne: null }
+          });
+          if (matchingNar?.entityId) {
+            t.entityId = matchingNar.entityId;
+            dirty = true;
+          } else if (singleEntityId) {
+            t.entityId = singleEntityId;
+            dirty = true;
+          }
+        }
+
+        if (!t.entityId) {
+          console.warn(`[Topic Normalization] Skipping legacy topic "${t.name}" without entityId`);
+          continue;
+        }
+
+        const entity = entities.find(e => e.entityId === t.entityId) || await Entity.findOne({ entityId: t.entityId });
+        const cleanName = sanitizeTopicName(t.name, entity?.name, entity?.domain);
+
+        if (cleanName !== t.name) {
+          // Check for collision with an existing topic under the same entity
+          const existingSameName = await Topic.findOne({
+            entityId: t.entityId,
+            name: cleanName,
+            _id: { $ne: t._id }
+          });
+          if (existingSameName) {
+            // Re-point any narratives using the old name and remove the duplicate topic record
+            await Narrative.updateMany({ entityId: t.entityId, topic: t.name }, { topic: cleanName });
+            await Topic.deleteOne({ _id: t._id });
+            continue;
+          }
+          t.name = cleanName;
+          dirty = true;
+        }
+
+        if (dirty) {
+          await t.save();
+        }
+      } catch (topicErr) {
+        console.warn(`[Topic Normalization] Could not normalize topic "${t.name}":`, topicErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('Error during startup normalization of narratives and topics:', err);
+  }
+};
+
+/**
+ * Reclassifies all existing narratives or those belonging to a specific entity.
+ */
+const reclassifyAllNarratives = async (entityId = null) => {
+  try {
+    const query = entityId ? { entityId } : {};
+    const narratives = await Narrative.find(query);
+    let count = 0;
+    for (const nar of narratives) {
+      const referencedDocumentIds = (nar.supportingEvidence?.document_ids || []).filter(id => /^[a-f\d]{24}$/i.test(String(id)));
+      const sourceDocs = referencedDocumentIds.length
+        ? await Document.find({ _id: { $in: referencedDocumentIds } }).limit(20)
+        : [];
+      const risk = detectSecurityRisk(nar, sourceDocs);
+      const classification = classifyNarrative(nar, sourceDocs, risk);
+
+      nar.direction = classification.direction;
+      nar.priority = classification.priority;
+      nar.positiveSignificance = classification.positiveSignificance;
+      nar.classificationReason = classification.classificationReason;
+      nar.impactIndicators = classification.impactIndicators;
+      nar.severityLevel = classification.severityLevel;
+      nar.severityReason = classification.severityReason;
+      nar.isSecurityRisk = classification.isSecurityRisk;
+      nar.securityRiskCategory = classification.securityRiskCategory;
+
+      if (!nar.analysis) nar.analysis = {};
+      nar.analysis.direction = classification.direction;
+      nar.analysis.priority = classification.priority;
+      nar.analysis.positive_significance = classification.positiveSignificance;
+      nar.analysis.classification_reason = classification.classificationReason;
+      nar.analysis.impact_indicators = classification.impactIndicators;
+
+      await nar.save();
+      count++;
+    }
+    console.log(`[Reclassification] Successfully reclassified ${count} narratives${entityId ? ` for entity ${entityId}` : ''}.`);
+    return count;
+  } catch (err) {
+    console.error('Error in reclassifyAllNarratives:', err);
+    throw err;
+  }
+};
+
+/**
+ * Reconciles all ProcessingJob records against authoritative document counts in MongoDB.
+ * Corrects stale totalDocuments / processedDocuments caused by document deletions.
+ */
+const reconcileJobDocumentCounts = async () => {
+  try {
+    const jobs = await ProcessingJob.find({});
+    for (const job of jobs) {
+      if (!job.batchId) continue;
+      const actualTotal = await Document.countDocuments({ batchId: job.batchId });
+      if (actualTotal === 0) {
+        if (job.status !== 'IDLE') {
+          job.status = 'IDLE';
+          job.totalDocuments = 0;
+          job.processedDocuments = 0;
+          job.failedDocuments = 0;
+          await job.save();
+        }
+        continue;
+      }
+      const actualCompleted = await Document.countDocuments({ batchId: job.batchId, processingStatus: 'completed' });
+      const actualFailed = await Document.countDocuments({ batchId: job.batchId, processingStatus: 'failed' });
+      const actualUnprocessed = await Document.countDocuments({ batchId: job.batchId, processingStatus: { $in: ['not_processed', 'pending'] } });
+
+      let needsSave = false;
+      if (job.totalDocuments !== actualTotal) {
+        job.totalDocuments = actualTotal;
+        needsSave = true;
+      }
+      if (job.processedDocuments !== actualCompleted) {
+        job.processedDocuments = actualCompleted;
+        needsSave = true;
+      }
+      if (job.failedDocuments !== actualFailed) {
+        job.failedDocuments = actualFailed;
+        needsSave = true;
+      }
+      if (actualUnprocessed === 0 && actualCompleted === actualTotal && !['PROCESSING', 'STOP_REQUESTED'].includes(job.status)) {
+        if (job.status !== 'COMPLETED') {
+          job.status = 'COMPLETED';
+          needsSave = true;
+        }
+      } else if (actualUnprocessed > 0 && !['PROCESSING', 'STOP_REQUESTED'].includes(job.status)) {
+        if (job.status === 'COMPLETED') {
+          // Reconcile: A batch with remaining unprocessed documents is PARTIALLY PROCESSED / READY, not COMPLETED
+          job.status = 'READY';
+          needsSave = true;
+        }
+      }
+      if (needsSave && job.entityId) {
+        await job.save();
+      }
+    }
+    console.log('[Reconciliation] Synced all ProcessingJob records with authoritative MongoDB documents.');
+  } catch (err) {
+    console.error('Error in reconcileJobDocumentCounts:', err);
+  }
+};
+
 export {
   getSources,
   getNarratives,
@@ -588,5 +1656,11 @@ export {
   getJobStatus,
   startProcessingJob,
   stopProcessingJob,
-  processDocumentsBackground
+  processDocumentsBackground,
+  reconcileInterruptedJobs,
+  normalizeExistingNarrativesAndTopics,
+  reconcileJobDocumentCounts,
+  reclassifyAllNarratives,
+  classifyNarrative,
+  detectSecurityRisk
 };

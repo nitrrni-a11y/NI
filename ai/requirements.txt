@@ -19,3 +19,5 @@ python-multipart
 youtube-transcript-api>=1.2,<2
 yt-dlp>=2024.3.10,<2027
 youtube-comment-downloader>=0.1.84
+groq>=1.7.0
+

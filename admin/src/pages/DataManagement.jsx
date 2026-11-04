@@ -3,7 +3,8 @@ import axios from 'axios';
 import { 
   Search, PlusCircle, Database, Trash2, Upload, FileText, 
   ChevronLeft, ChevronRight, Globe, Calendar, Clock, Cpu, 
-  CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight, Rss, Copy, Check 
+  CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight, Rss, Copy, Check,
+  Download, Info, FileSpreadsheet
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
@@ -24,6 +25,8 @@ const DataManagement = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
   const [csvError, setCsvError] = useState(null);
+  const [showFormatModal, setShowFormatModal] = useState(false);
+  const [detectedColumns, setDetectedColumns] = useState([]);
 
   const [selectedDocs, setSelectedDocs] = useState(new Set());
   const [viewDoc, setViewDoc] = useState(null);
@@ -153,44 +156,130 @@ const DataManagement = () => {
   
   const fileInputRef = React.useRef(null);
 
-  // Scroll lock for modals
+  // Handle Escape key and body scroll lock for modals in DataManagement
   useEffect(() => {
-    if (viewDoc || deleteConfirmation || showScraperModal) {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (showFormatModal) {
+          setShowFormatModal(false);
+        } else if (deleteConfirmation) {
+          setDeleteConfirmation(null);
+        } else if (viewDoc) {
+          setViewDoc(null);
+        } else if (showScraperModal) {
+          setShowScraperModal(false);
+        }
+      }
+    };
+
+    const isAnyModalOpen = Boolean(viewDoc || showScraperModal || deleteConfirmation || showFormatModal);
+    if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
+      window.addEventListener('keydown', handleKeyDown);
     } else {
       document.body.style.overflow = '';
     }
+
     return () => {
       document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [viewDoc, deleteConfirmation, showScraperModal]);
+  }, [viewDoc, showScraperModal, deleteConfirmation, showFormatModal]);
+
+  const handleDownloadCsvTemplate = () => {
+    const csvContent = 
+      "timestamp,raw_text,source,author,published_date\n" +
+      "2025-01-15T10:30:00Z,\"Campus placements for CSE have seen significant improvement this year, with multiple tier-1 tech companies visiting.\",\"Google Reviews\",\"Student_A102\",\"2025-01-14\"\n" +
+      "2025-01-20T14:15:00Z,\"Hostel Wi-Fi and mess food quality require urgent attention from administration.\",\"Shiksha\",\"Anonymous\",\"2025-01-19\"\n" +
+      "2025-01-22T09:00:00Z,\"New lab equipment has been installed in the robotics research facility.\",\"LinkedIn\",\"Faculty_DrR\",\"2025-01-21\"\n";
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'ni_student_reviews_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const handleCsvChange = (e) => {
-    const file = e.target.files[0];
-    setCsvFile(file || null);
+    const file = e.target.files?.[0];
     setCsvError(null);
     setUploadResult(null);
+    setDetectedColumns([]);
 
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target.result;
-        const firstLine = text.split('\n')[0].toLowerCase();
-        
-        const required = ['timestamp', 'raw_text', 'source', 'author', 'published_date'];
-        const missing = required.filter(col => !firstLine.includes(col));
-        
-        if (missing.length > 0) {
-          setCsvError(`Invalid CSV format. Missing required columns: ${missing.join(', ')}`);
-          setCsvFile(null);
-        }
-      };
-      reader.readAsText(file.slice(0, 4096)); 
+    if (!file) {
+      setCsvFile(null);
+      return;
     }
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setCsvError('Invalid file type. Please upload a file with a .csv extension.');
+      setCsvFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size === 0) {
+      setCsvError('The selected CSV file is empty (0 bytes).');
+      setCsvFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r\n|\n/).filter(line => line.trim().length > 0);
+        if (lines.length < 2) {
+          setCsvError('CSV file must contain a header row and at least one data row.');
+          setCsvFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+
+        // Parse header row
+        const headerLine = lines[0].replace(/^\ufeff/, ''); // remove UTF-8 BOM if present
+        const headers = headerLine.split(',').map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+        setDetectedColumns(headers);
+
+        const textAliases = ['raw_text', 'text', 'review', 'content'];
+        const foundTextCol = headers.find(h => textAliases.includes(h));
+
+        if (!foundTextCol) {
+          setCsvError(`Missing required review text column. CSV must contain "raw_text" (or aliases: ${textAliases.join(', ')}). Found columns: [${headers.join(', ')}]`);
+          setCsvFile(null);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+
+        setCsvFile(file);
+      } catch (err) {
+        setCsvError('Failed to read CSV file: ' + err.message);
+        setCsvFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.onerror = () => {
+      setCsvError('Error reading CSV file from disk.');
+      setCsvFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file.slice(0, 8192));
   };
 
   const handleCsvUpload = async () => {
     if (!csvFile) return;
+    if (!selectedEntity?.entityId) {
+      setUploadResult({
+        success: false,
+        message: 'Please select an entity before uploading CSV data.'
+      });
+      return;
+    }
     setUploading(true);
     setUploadResult(null);
     const formData = new FormData();
@@ -202,16 +291,27 @@ const DataManagement = () => {
         withCredentials: true,
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setUploadResult({ success: true, message: res.data.message, savedCount: res.data.savedCount, totalRows: res.data.totalRows });
+      setUploadResult({ 
+        success: true, 
+        message: res.data.message || 'Successfully uploaded and parsed documents from CSV!', 
+        savedCount: res.data.savedCount, 
+        totalRows: res.data.totalRows 
+      });
       fetchData(query, 1);
+      setCsvFile(null);
+      setDetectedColumns([]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
+      const respData = err.response?.data;
       setUploadResult({
         success: false,
-        message: err.response?.data?.message || err.message
+        code: respData?.code,
+        message: respData?.message || err.message,
+        suggestion: respData?.suggestion
       });
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
-    setCsvFile(null);
   };
 
   const fetchData = async (searchQuery = '', page = 1) => {
@@ -499,65 +599,203 @@ const DataManagement = () => {
         </div>
 
         {/* Bulk Upload CSV Card */}
-        <div className="card shadow-sm border border-gray-100 flex flex-col">
-          <div className="flex justify-between items-start mb-2">
-            <div>
-              <h3 className="text-lg font-semibold flex items-center gap-2"><Upload size={18} /> Bulk Upload CSV</h3>
-              <p className="text-secondary text-sm mt-1">Manual offline dataset ingestion.</p>
-            </div>
-          </div>
-
-          {csvError && (
-            <div className="mb-3 p-2 rounded text-xs font-medium border border-red-300 bg-red-50 text-red-700">
-              {csvError}
-            </div>
-          )}
-
-          <div className="flex gap-2 items-center mt-auto">
-            <div 
-              className="flex-1 flex items-center justify-between border-2 border-dashed rounded cursor-pointer transition-colors" 
-              style={{ padding: '0.6rem 0.8rem', borderColor: 'var(--border-color)', backgroundColor: 'var(--bg-color)' }}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input 
-                type="file" 
-                accept=".csv"
-                ref={fileInputRef}
-                onChange={handleCsvChange}
-                style={{ display: 'none' }}
-              />
-              <span className="text-secondary truncate font-medium text-xs">
-                {csvFile ? csvFile.name : 'Choose CSV'}
-              </span>
-              <button 
-                type="button" 
-                className="btn btn-secondary shadow-sm py-1 px-2 text-xs"
-                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+        <div className="card shadow-sm border border-gray-100 flex flex-col justify-between" style={{ minHeight: '260px' }}>
+          <div>
+            <div className="flex justify-between items-start mb-2.5">
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2" style={{ margin: 0 }}>
+                  <Upload size={18} className="text-primary" /> Bulk Upload CSV
+                </h3>
+                <p className="text-secondary text-xs mt-0.5">Manual offline dataset ingestion for Narrative Intelligence.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadCsvTemplate}
+                className="btn btn-secondary shadow-sm text-xs flex items-center gap-1.5 py-1 px-2.5 shrink-0"
+                title="Download standard student reviews CSV template"
+                style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
               >
-                Browse
+                <Download size={13} />
+                <span>Template</span>
               </button>
             </div>
-            <button 
-              className="btn btn-primary shadow-sm" 
-              onClick={handleCsvUpload} 
-              disabled={!csvFile || uploading || csvError}
-              style={{ padding: '0.6rem 1rem', fontSize: '0.875rem', opacity: (!csvFile || uploading || csvError) ? 0.6 : 1 }}
+
+            {/* Expected CSV Format Section */}
+            <div 
+              className="rounded-lg p-2.5 mb-3" 
+              style={{ backgroundColor: 'var(--bg-color)', border: '1px solid var(--border-color)' }}
             >
-              {uploading ? '...' : 'Upload'}
-            </button>
-          </div>
-          {uploadResult && (
-            <div className="mt-2 p-2 rounded border font-medium text-xs" style={{ 
-              backgroundColor: uploadResult.success ? '#dcfce7' : '#fee2e2', 
-              borderColor: uploadResult.success ? '#22c55e' : '#ef4444', 
-              color: uploadResult.success ? '#15803d' : '#b91c1c' 
-            }}>
-              <p>{uploadResult.message}</p>
-              {uploadResult.success && uploadResult.savedCount !== undefined && (
-                <p className="mt-0.5 font-normal opacity-90">Saved: {uploadResult.savedCount} / Total: {uploadResult.totalRows}</p>
-              )}
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-xs flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  <FileSpreadsheet size={14} className="text-blue-500 shrink-0" />
+                  <span>Expected CSV Format</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowFormatModal(true)}
+                  className="btn btn-secondary shadow-sm text-xs flex items-center gap-1.5 shrink-0"
+                  style={{ height: '26px', padding: '0 0.65rem', fontSize: '0.725rem' }}
+                  title="View column specifications, accepted aliases, and sample row"
+                >
+                  <Info size={13} className="text-blue-500" />
+                  <span>Format Details</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 items-center">
+                <span 
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-mono text-xs font-semibold shadow-xs" 
+                  style={{ backgroundColor: 'rgba(59, 130, 246, 0.12)', color: 'var(--accent-blue, #2563eb)', border: '1px solid rgba(59, 130, 246, 0.25)' }}
+                  title="Mandatory review text column (aliases: text, review, content)"
+                >
+                  raw_text
+                  <span className="text-[9px] uppercase font-bold tracking-wider px-1 py-0.2 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#dc2626' }}>
+                    Required
+                  </span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-mono text-xs shadow-xs" 
+                  style={{ backgroundColor: 'var(--surface-color)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                  title="Optional platform/publisher name"
+                >
+                  source
+                  <span className="text-[10px] text-muted font-sans">opt</span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-mono text-xs shadow-xs" 
+                  style={{ backgroundColor: 'var(--surface-color)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                  title="Optional author/student identifier"
+                >
+                  author
+                  <span className="text-[10px] text-muted font-sans">opt</span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-mono text-xs shadow-xs" 
+                  style={{ backgroundColor: 'var(--surface-color)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                  title="Optional publication date (YYYY-MM-DD)"
+                >
+                  published_date
+                  <span className="text-[10px] text-muted font-sans">opt</span>
+                </span>
+                <span 
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-mono text-xs shadow-xs" 
+                  style={{ backgroundColor: 'var(--surface-color)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                  title="Optional collection/ingestion timestamp"
+                >
+                  timestamp
+                  <span className="text-[10px] text-muted font-sans">opt</span>
+                </span>
+              </div>
             </div>
-          )}
+
+            {csvError && (
+              <div className="mb-3 p-2.5 rounded-lg text-xs font-medium border border-red-300 bg-red-50 text-red-700 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-600" />
+                <span>{csvError}</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="w-full min-w-0 flex items-center gap-2">
+              <div 
+                className="flex-1 min-w-0 flex items-center justify-between gap-2 border-2 border-dashed rounded-lg cursor-pointer transition-colors" 
+                style={{ 
+                  height: '42px',
+                  padding: '0 0.75rem', 
+                  borderColor: csvFile ? 'var(--accent-blue, #3b82f6)' : 'var(--border-color)', 
+                  backgroundColor: 'var(--bg-color)' 
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                title={csvFile ? csvFile.name : 'Click to select a CSV file'}
+              >
+                <input 
+                  type="file" 
+                  accept=".csv"
+                  ref={fileInputRef}
+                  onChange={handleCsvChange}
+                  style={{ display: 'none' }}
+                />
+                <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                  <FileText size={15} className={csvFile ? 'text-blue-500 shrink-0' : 'text-muted shrink-0'} />
+                  <span 
+                    className="truncate font-medium text-xs block text-left" 
+                    style={{ color: csvFile ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+                    title={csvFile ? csvFile.name : 'Choose CSV file...'}
+                  >
+                    {csvFile ? csvFile.name : 'Choose CSV file...'}
+                  </span>
+                </div>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary shadow-sm text-xs shrink-0"
+                  style={{ height: '30px', padding: '0 0.65rem' }}
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                >
+                  Browse
+                </button>
+              </div>
+              <button 
+                className="btn btn-primary shadow-sm flex items-center justify-center gap-1.5 shrink-0" 
+                onClick={handleCsvUpload} 
+                disabled={!csvFile || uploading || !!csvError}
+                style={{ 
+                  height: '42px',
+                  padding: '0 1.1rem', 
+                  fontSize: '0.875rem', 
+                  opacity: (!csvFile || uploading || !!csvError) ? 0.6 : 1,
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload size={15} />
+                    <span>Upload</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {uploadResult && (
+              <div className="mt-3 p-3 rounded-lg border font-medium text-xs" style={{ 
+                backgroundColor: uploadResult.success ? '#dcfce7' : '#fee2e2', 
+                borderColor: uploadResult.success ? '#22c55e' : '#ef4444', 
+                color: uploadResult.success ? '#15803d' : '#b91c1c' 
+              }}>
+                <div className="flex items-start gap-2">
+                  {uploadResult.success ? (
+                    <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+                  ) : (
+                    <AlertCircle size={16} className="text-rose-600 mt-0.5 shrink-0" />
+                  )}
+                  <div className="flex-1">
+                    <p className="font-semibold">{uploadResult.message}</p>
+                    {uploadResult.success && uploadResult.savedCount !== undefined && (
+                      <p className="mt-0.5 font-normal opacity-90">
+                        Saved {uploadResult.savedCount} documents (Total rows in CSV: {uploadResult.totalRows}).
+                      </p>
+                    )}
+                    {uploadResult.code === 'AI_SERVICE_UNAVAILABLE' && (
+                      <div className="mt-2 p-2 bg-white rounded border border-rose-200 text-gray-800">
+                        <p className="font-semibold text-xs text-rose-900 mb-1">To start the Python AI Service:</p>
+                        <div className="bg-gray-900 text-green-400 p-2 rounded font-mono text-[11px] select-all">
+                          cd ai ; python -m uvicorn app.main:app --port 8000
+                        </div>
+                      </div>
+                    )}
+                    {uploadResult.suggestion && uploadResult.code !== 'AI_SERVICE_UNAVAILABLE' && (
+                      <p className="mt-1 font-normal opacity-90 text-[11px]">{uploadResult.suggestion}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1419,6 +1657,202 @@ const DataManagement = () => {
                   <span>{isScraping ? 'Scraping & Saving...' : `Scrape & Ingest (${scraperSource === 'gdelt' ? 'GDELT' : 'RSS'})`}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expected CSV Format Details Modal */}
+      {showFormatModal && (
+        <div 
+          onClick={() => setShowFormatModal(false)}
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(15, 23, 42, 0.75)', 
+            backdropFilter: 'blur(4px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1.25rem' 
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              backgroundColor: 'var(--surface-color-strong, #ffffff)', 
+              borderRadius: '12px', 
+              border: '1px solid var(--border-color)', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)', 
+              width: '100%', 
+              maxWidth: '740px', 
+              maxHeight: '90vh', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden' 
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: '38px', height: '38px', borderRadius: '8px', backgroundColor: 'rgba(59, 130, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-blue, #2563eb)' }}>
+                  <FileSpreadsheet size={20} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)' }}>Expected CSV Format</h2>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Specifications for bulk document ingestion into the AI pipeline</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowFormatModal(false)}
+                className="btn btn-ghost p-1.5 rounded-lg text-secondary hover:text-primary transition-colors"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+                title="Close (Esc)"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* File Specs Banner */}
+              <div 
+                className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 rounded-xl border text-xs"
+                style={{ backgroundColor: 'var(--surface-color-soft)', borderColor: 'var(--border-color)' }}
+              >
+                <div>
+                  <span className="text-secondary font-medium block mb-0.5">File Extension</span>
+                  <span className="font-semibold text-primary font-mono bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-900 inline-block">.csv</span>
+                </div>
+                <div>
+                  <span className="text-secondary font-medium block mb-0.5">Encoding</span>
+                  <span className="font-semibold text-primary">UTF-8 <span className="text-secondary text-[11px] font-normal">(BOM supported)</span></span>
+                </div>
+                <div>
+                  <span className="text-secondary font-medium block mb-0.5">Delimiter & Rules</span>
+                  <span className="font-semibold text-primary">Comma (,) <span className="text-secondary text-[11px] font-normal">RFC 4180 quotes</span></span>
+                </div>
+              </div>
+
+              {/* Column Schema Table */}
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-secondary mb-2">Column Specifications</h4>
+                <div className="border rounded-xl overflow-hidden" style={{ borderColor: 'var(--border-color)' }}>
+                  <table className="w-full text-xs text-left" style={{ borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'var(--bg-color)', borderBottom: '1px solid var(--border-color)' }}>
+                        <th className="py-2.5 px-3.5 font-semibold text-secondary">Column Name</th>
+                        <th className="py-2.5 px-3.5 font-semibold text-secondary">Requirement</th>
+                        <th className="py-2.5 px-3.5 font-semibold text-secondary">Description & Accepted Aliases</th>
+                      </tr>
+                    </thead>
+                    <tbody style={{ divideY: '1px solid var(--border-color)' }}>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(59, 130, 246, 0.03)' }}>
+                        <td className="py-2.5 px-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">raw_text</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900">
+                            Required
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-secondary leading-relaxed">
+                          Primary review, feedback, or statement text analyzed by Narrative Intelligence.
+                          <div className="mt-1 font-mono text-[11px] text-muted">Aliases accepted: <code>text</code>, <code>review</code>, <code>content</code></div>
+                        </td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td className="py-2.5 px-3.5 font-mono font-medium text-primary">source</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-muted bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                            Optional
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-secondary leading-relaxed">
+                          Origin platform or publisher (e.g., <em>Google Reviews, Shiksha, Reddit, Campus Forum</em>). Defaults to <code>Unknown</code> if omitted.
+                        </td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td className="py-2.5 px-3.5 font-mono font-medium text-primary">author</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-muted bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                            Optional
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-secondary leading-relaxed">
+                          Reviewer username, student ID, or identifier (e.g. <code>Student_A102</code>). Defaults to <code>Unknown</code> if omitted.
+                        </td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                        <td className="py-2.5 px-3.5 font-mono font-medium text-primary">published_date</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-muted bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                            Optional
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-secondary leading-relaxed">
+                          Date review or statement was originally published (<code>YYYY-MM-DD</code> or ISO 8601).
+                          <div className="mt-1 font-mono text-[11px] text-muted">Alias accepted: <code>published_at</code></div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3.5 font-mono font-medium text-primary">timestamp</td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase text-muted bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                            Optional
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-secondary leading-relaxed">
+                          Timestamp when the record was collected or ingested (e.g. <code>2025-01-15T10:30:00Z</code>).
+                          <div className="mt-1 font-mono text-[11px] text-muted">Alias accepted: <code>collected_at</code></div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Example CSV Data Preview */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-secondary m-0">Example CSV Row Preview</h4>
+                  <span className="text-[11px] text-muted font-mono">ni_dataset_short_student_reviews.csv</span>
+                </div>
+                <div 
+                  className="p-3 rounded-xl font-mono text-xs overflow-x-auto border leading-relaxed" 
+                  style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}
+                >
+                  <div className="text-secondary opacity-70 border-b pb-1.5 mb-1.5" style={{ borderColor: 'var(--border-color)' }}>
+                    timestamp,raw_text,source,author,published_date
+                  </div>
+                  <div className="text-primary whitespace-pre">
+                    2025-01-15T10:30:00Z,"Campus placements for CSE have seen significant improvement this year, with multiple tier-1 tech companies visiting.","Google Reviews","Student_A102","2025-01-14"
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
+              <button
+                type="button"
+                onClick={handleDownloadCsvTemplate}
+                className="btn btn-secondary shadow-sm text-xs flex items-center gap-2"
+                style={{ height: '36px', padding: '0 1rem' }}
+              >
+                <Download size={14} />
+                <span>Download Sample Template</span>
+              </button>
+              <button 
+                type="button"
+                onClick={() => setShowFormatModal(false)}
+                className="btn btn-primary shadow-sm text-xs"
+                style={{ height: '36px', padding: '0 1.25rem' }}
+              >
+                Got It
+              </button>
             </div>
           </div>
         </div>

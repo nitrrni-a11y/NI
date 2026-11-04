@@ -13,11 +13,16 @@ from app.pipeline.schemas import (
     ProcessCSVResponse,
     YouTubeExtractRequest,
     YouTubeExtractResponse,
+    CancelBatchRequest,
 )
 
 from app.pipeline.pipeline import (
     process_document,
     process_batch,
+)
+from app.pipeline.cancellation import (
+    cancellation_manager,
+    BatchCancelledException,
 )
 
 
@@ -85,9 +90,26 @@ def process_batch_endpoint(request: BatchRequest):
             detail="No documents provided in batch."
         )
 
+    run_id = request.run_id
+
     try:
+        if run_id:
+            cancellation_manager.start_run(run_id)
+
         result = process_batch(request)
         return result
+
+    except BatchCancelledException as bce:
+        print(f"[API] Batch run {run_id} was successfully cancelled: {bce}")
+        return ProcessBatchResponse(
+            documents_processed=0,
+            claims_extracted=0,
+            groups_identified=0,
+            narratives=[],
+            processed_documents=[],
+            status="cancelled",
+            message=str(bce)
+        )
 
     except Exception as e:
         traceback.print_exc()
@@ -95,6 +117,31 @@ def process_batch_endpoint(request: BatchRequest):
             status_code=500,
             detail=str(e)
         )
+
+    finally:
+        if run_id:
+            cancellation_manager.finish_run(run_id)
+
+
+# ============================================================
+# CANCELLATION ENDPOINT
+# ============================================================
+
+@app.post("/process/cancel")
+def cancel_batch_endpoint(request: CancelBatchRequest):
+    """
+    Signals the AI service to halt processing for a given run ID as soon as possible.
+    """
+    run_id = request.run_id
+    if not run_id:
+        return {"status": "ignored", "message": "No run_id provided"}
+
+    cancellation_manager.cancel_run(run_id)
+    return {
+        "status": "ok",
+        "run_id": run_id,
+        "message": f"Run {run_id} marked as cancelled"
+    }
 
 
 # ============================================================
@@ -284,4 +331,4 @@ def extract_youtube_endpoint(request: YouTubeExtractRequest):
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred during YouTube extraction: {e}"
-        )
+        )

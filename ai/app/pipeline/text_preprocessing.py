@@ -1,10 +1,10 @@
 import re
 import html
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.pipeline.schemas import RawDocument, PreprocessedDocument
 from app.pipeline.translation import process_document_language
 
-def preprocess_document(raw_doc: RawDocument) -> PreprocessedDocument:
+def preprocess_document(raw_doc: RawDocument, run_id: Optional[str] = None) -> PreprocessedDocument:
     text = raw_doc.text if isinstance(raw_doc.text, str) else str(raw_doc.text or "")
     
     if not text.strip():
@@ -44,4 +44,4 @@ def preprocess_document(raw_doc: RawDocument) -> PreprocessedDocument:
     )
 
     # Language detection and conditional translation stage
-    return process_document_language(initial_doc, raw_doc)
+    return process_document_language(initial_doc, raw_doc, run_id=run_id)

@@ -76,6 +76,8 @@ class ExistingNarrative(BaseModel):
     document_ids: List[str] = Field(default_factory=list)
     sources: List[str] = Field(default_factory=list)
     sentiment: float = 0.0
+    temporal_information: Dict[str, Any] = Field(default_factory=dict)
+    timeline: List[Dict[str, Any]] = Field(default_factory=list)
 
 class Narrative(BaseModel):
     narrative_id: str
@@ -93,19 +95,38 @@ class NarrativeAnalysis(BaseModel):
     source_count: int
     sentiment: float
     temporal_information: Dict[str, Any]
-    recurrence: str
+    recurrence: str  # Kept for backward compatibility
+    trend: str = Field(default="Stable", description="Trend classification: Rising, Declining, Stable, or Insufficient Data")
+    timeline: List[Dict[str, Any]] = Field(default_factory=list, description="Chronological timeline of claims and sentiments")
     strength: float
+    display_status: str = Field(default="established", description="'established' or 'candidate'")
+    is_eligible: bool = Field(default=True, description="Whether eligible for main dashboard display")
+    eligibility_reason: str = Field(default="", description="Reason for display eligibility status")
+    direction: str = Field(default="neutral", description="'positive', 'negative', 'neutral', or 'mixed'")
+    priority: str = Field(default="none", description="'critical', 'high', 'medium', 'low', or 'none'")
+    positive_significance: str = Field(default="none", description="'significant', 'notable', 'general', or 'none'")
+    classification_reason: str = Field(default="", description="Reasoning for narrative direction, priority, or significance")
+    impact_indicators: List[str] = Field(default_factory=list, description="Categorical impact signals")
 
 class FinalNarrative(BaseModel):
     narrative_id: str
     topic_id: str = Field(default="")
     topic: str
     narrative: str
+    trend: str = Field(default="Stable", description="Rising, Declining, Stable, or Insufficient Data")
     supporting_evidence: NarrativeEvidence
     analysis: NarrativeAnalysis
     intelligence: str
     recommendation: str
     is_new_topic: bool = False
+    display_status: str = Field(default="established", description="'established' or 'candidate'")
+    is_eligible: bool = Field(default=True, description="Whether eligible for main dashboard display")
+    eligibility_reason: str = Field(default="", description="Explanation of display eligibility")
+    direction: str = Field(default="neutral", description="'positive', 'negative', 'neutral', or 'mixed'")
+    priority: str = Field(default="none", description="'critical', 'high', 'medium', 'low', or 'none'")
+    positive_significance: str = Field(default="none", description="'significant', 'notable', 'general', or 'none'")
+    classification_reason: str = Field(default="", description="Reasoning for narrative direction, priority, or significance")
+    impact_indicators: List[str] = Field(default_factory=list, description="Categorical impact signals")
 
 class ExistingTopic(BaseModel):
     topic_id: str
@@ -126,6 +147,7 @@ class ProcessDocumentResponse(BaseModel):
     claims: List[EnrichedClaim]
 
 class BatchRequest(BaseModel):
+    run_id: Optional[str] = Field(default=None, description="Optional unique identifier for the batch run to enable cancellation")
     documents: List[RawDocument]
     existing_narratives: List[ExistingNarrative] = Field(default_factory=list)
     analysis_context: EntityContext
@@ -137,6 +159,12 @@ class ProcessBatchResponse(BaseModel):
     groups_identified: int
     narratives: List[FinalNarrative]
     processed_documents: List[PreprocessedDocument] = Field(default_factory=list)
+    status: Optional[str] = Field(default="completed", description="Status of the batch: completed or cancelled")
+    message: Optional[str] = Field(default=None, description="Optional informational or cancellation message")
+
+class CancelBatchRequest(BaseModel):
+    run_id: Optional[str] = Field(default=None, description="Run ID to cancel")
+    batch_id: Optional[str] = Field(default=None, description="Batch ID to cancel")
 
 class ProcessCSVResponse(BaseModel):
     filename: str

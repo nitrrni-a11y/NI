@@ -5,6 +5,10 @@ const processingJobSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  runId: {
+    type: String,
+    default: null
+  },
   entityId: {
     type: String,
     required: true,
@@ -12,7 +16,7 @@ const processingJobSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['READY', 'PROCESSING', 'COMPLETED', 'FAILED', 'STOPPED', 'IDLE'],
+    enum: ['READY', 'PROCESSING', 'STOP_REQUESTED', 'CANCELLED', 'STOPPED', 'COMPLETED', 'FAILED', 'IDLE'],
     default: 'READY'
   },
   totalDocuments: {
@@ -60,6 +64,14 @@ const processingJobSchema = new mongoose.Schema({
   },
   completedAt: {
     type: Date
+  },
+  cancelledAt: {
+    type: Date,
+    default: null
+  },
+  cancellationReason: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true

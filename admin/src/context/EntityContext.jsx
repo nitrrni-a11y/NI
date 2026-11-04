@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 
 const EntityContext = createContext();
 
@@ -11,7 +11,7 @@ export const EntityProvider = ({ children }) => {
   useEffect(() => {
     const fetchEntities = async () => {
       try {
-        const { data } = await axios.get('/api/entities', { withCredentials: true });
+        const { data } = await api.get('/entities');
         setEntities(data);
         
         const savedEntityId = localStorage.getItem('selectedEntityId');
