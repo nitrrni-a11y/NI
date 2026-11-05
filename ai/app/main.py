@@ -14,6 +14,8 @@ from app.pipeline.schemas import (
     YouTubeExtractRequest,
     YouTubeExtractResponse,
     CancelBatchRequest,
+    LinkedInClassifyRequest,
+    LinkedInClassifyResponse,
 )
 
 from app.pipeline.pipeline import (
@@ -331,4 +333,43 @@ def extract_youtube_endpoint(request: YouTubeExtractRequest):
         raise HTTPException(
             status_code=500,
             detail=f"An unexpected error occurred during YouTube extraction: {e}"
+        )
+
+
+# ============================================================
+# LINKEDIN OPINION CLASSIFICATION (Allam-2-7B SLM)
+# ============================================================
+
+@app.post(
+    "/classify/linkedin-opinions",
+    response_model=LinkedInClassifyResponse
+)
+def classify_linkedin_opinions_endpoint(request: LinkedInClassifyRequest):
+    """
+    Classifies discovered LinkedIn posts for direct opinions, criticisms, praise,
+    or inquiries about the target organisation using the Allam-2-7B SLM on Groq.
+    """
+    if not request.organisation_name or not request.organisation_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Organisation name is required for opinion classification."
+        )
+
+    if not request.posts:
+        return LinkedInClassifyResponse(classified_posts=[])
+
+    from app.pipeline.linkedin_classifier import classify_linkedin_posts
+
+    try:
+        response = classify_linkedin_posts(
+            organisation_name=request.organisation_name.strip(),
+            aliases=request.aliases,
+            posts=request.posts,
+        )
+        return response
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"LinkedIn opinion classification failed: {str(e)}"
         )

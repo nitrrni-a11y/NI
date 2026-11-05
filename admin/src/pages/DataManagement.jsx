@@ -4,10 +4,45 @@ import {
   Search, PlusCircle, Database, Trash2, Upload, FileText, 
   ChevronLeft, ChevronRight, Globe, Calendar, Clock, Cpu, 
   CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight, Rss, Copy, Check,
-  Download, Info, FileSpreadsheet
+  Download, Info, FileSpreadsheet, Compass
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
+
+const LinkedinIcon = ({ size = 18, color = 'currentColor' }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+    <rect x="2" y="9" width="4" height="12" />
+    <circle cx="4" cy="4" r="2" />
+  </svg>
+);
+
+const YouTubeIcon = ({ size = 18, color = 'currentColor' }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill={color} />
+  </svg>
+);
 
 const DataManagement = () => {
   const { selectedEntity } = useEntity();
@@ -72,6 +107,19 @@ const DataManagement = () => {
   const [previewArticles, setPreviewArticles] = useState(null);
   const [scraperResult, setScraperResult] = useState(null);
   const [scraperError, setScraperError] = useState(null);
+
+  // LinkedIn Scraper states
+  const [showLinkedInModal, setShowLinkedInModal] = useState(false);
+  const [linkedInUrl, setLinkedInUrl] = useState('');
+  const [linkedInNumComments, setLinkedInNumComments] = useState(100);
+  const [isExtractingLinkedIn, setIsExtractingLinkedIn] = useState(false);
+  const [linkedInExtractedData, setLinkedInExtractedData] = useState(null);
+  const [linkedInExtractError, setLinkedInExtractError] = useState(null);
+  const [isIngestingLinkedIn, setIsIngestingLinkedIn] = useState(false);
+  const [linkedInIngestResult, setLinkedInIngestResult] = useState(null);
+  const [linkedInIngestError, setLinkedInIngestError] = useState(null);
+  const [commentsPage, setCommentsPage] = useState(1);
+  const commentsPerPage = 6;
 
   const modalBodyRef = useRef(null);
   const scraperProgressRef = useRef(null);
@@ -168,11 +216,13 @@ const DataManagement = () => {
           setViewDoc(null);
         } else if (showScraperModal) {
           setShowScraperModal(false);
+        } else if (showLinkedInModal && !isExtractingLinkedIn && !isIngestingLinkedIn) {
+          setShowLinkedInModal(false);
         }
       }
     };
 
-    const isAnyModalOpen = Boolean(viewDoc || showScraperModal || deleteConfirmation || showFormatModal);
+    const isAnyModalOpen = Boolean(viewDoc || showScraperModal || deleteConfirmation || showFormatModal || showLinkedInModal);
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
       window.addEventListener('keydown', handleKeyDown);
@@ -481,6 +531,77 @@ const DataManagement = () => {
     }
   };
 
+  const handleOpenLinkedInModal = () => {
+    setShowLinkedInModal(true);
+    setLinkedInExtractError(null);
+    setLinkedInIngestError(null);
+  };
+
+  const handleExtractLinkedIn = async (e) => {
+    if (e) e.preventDefault();
+    const trimmedUrl = linkedInUrl.trim();
+    if (!trimmedUrl) {
+      setLinkedInExtractError('Please enter a valid LinkedIn post URL.');
+      return;
+    }
+
+    setIsExtractingLinkedIn(true);
+    setLinkedInExtractError(null);
+    setLinkedInIngestResult(null);
+    setLinkedInIngestError(null);
+    setCommentsPage(1);
+
+    try {
+      const res = await axios.post('/api/scraper/linkedin/extract', {
+        url: trimmedUrl,
+        numComments: linkedInNumComments
+      }, { withCredentials: true });
+
+      setLinkedInExtractedData(res.data);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to extract LinkedIn post data.';
+      setLinkedInExtractError(msg);
+    } finally {
+      setIsExtractingLinkedIn(false);
+    }
+  };
+
+  const handleIngestLinkedIn = async () => {
+    if (!linkedInExtractedData || !linkedInExtractedData.post) return;
+    if (!selectedEntity?.entityId) {
+      setLinkedInIngestError('Please select an entity before ingesting documents.');
+      return;
+    }
+
+    setIsIngestingLinkedIn(true);
+    setLinkedInIngestError(null);
+
+    try {
+      const res = await axios.post('/api/scraper/linkedin/ingest', {
+        entityId: selectedEntity.entityId,
+        post: linkedInExtractedData.post,
+        comments: linkedInExtractedData.comments || []
+      }, { withCredentials: true });
+
+      setLinkedInIngestResult(res.data);
+      fetchData(query, 1);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to ingest LinkedIn documents.';
+      setLinkedInIngestError(msg);
+    } finally {
+      setIsIngestingLinkedIn(false);
+    }
+  };
+
+  const handleResetLinkedIn = () => {
+    setLinkedInUrl('');
+    setLinkedInExtractedData(null);
+    setLinkedInExtractError(null);
+    setLinkedInIngestResult(null);
+    setLinkedInIngestError(null);
+    setCommentsPage(1);
+  };
+
   return (
     <div style={{ paddingBottom: '40px' }}>
       <div className="flex flex-col mb-10">
@@ -510,6 +631,58 @@ const DataManagement = () => {
               <Globe size={18} />
               <span>Live Web Scraper</span>
             </button>
+            <button 
+              type="button"
+              onClick={handleOpenLinkedInModal}
+              className="btn shadow-sm flex items-center gap-2"
+              style={{ 
+                padding: '0.75rem 1.4rem', 
+                fontWeight: 600, 
+                backgroundColor: '#0a66c2', 
+                color: '#ffffff',
+                borderRadius: '8px',
+                border: 'none',
+                boxShadow: '0 2px 4px rgba(10, 102, 194, 0.25)',
+                cursor: 'pointer'
+              }}
+            >
+              <LinkedinIcon size={18} color="#ffffff" />
+              <span>LinkedIn Post Scraper</span>
+            </button>
+            <Link 
+              to={`/entity/${selectedEntity.entityId}/discovery/youtube`} 
+              className="btn shadow-sm flex items-center gap-2"
+              style={{ 
+                padding: '0.75rem 1.4rem', 
+                fontWeight: 600, 
+                backgroundColor: '#dc2626', 
+                color: '#ffffff',
+                borderRadius: '8px',
+                border: 'none',
+                boxShadow: '0 2px 4px rgba(220, 38, 38, 0.25)',
+                textDecoration: 'none'
+              }}
+            >
+              <YouTubeIcon size={18} color="#ffffff" />
+              <span>YouTube Discovery</span>
+            </Link>
+            <Link 
+              to={`/entity/${selectedEntity.entityId}/discovery/linkedin`}
+              className="btn shadow-sm flex items-center gap-2"
+              style={{ 
+                padding: '0.75rem 1.4rem', 
+                fontWeight: 600, 
+                backgroundColor: '#0284c7', 
+                color: '#ffffff',
+                borderRadius: '8px',
+                border: 'none',
+                boxShadow: '0 2px 4px rgba(2, 132, 199, 0.25)',
+                textDecoration: 'none'
+              }}
+            >
+              <Compass size={18} />
+              <span>LinkedIn Discovery</span>
+            </Link>
             <Link to={`/entity/${selectedEntity.entityId}/data/add`} className="btn btn-secondary shadow-sm flex items-center gap-2" style={{ padding: '0.75rem 1.4rem', fontWeight: 500, width: 'fit-content' }}>
               <PlusCircle size={18} />
               <span>Add Document</span>
@@ -518,7 +691,7 @@ const DataManagement = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
         {/* Scraper Quick Card */}
         <div 
           className="card shadow-sm flex flex-col justify-between"
@@ -555,7 +728,7 @@ const DataManagement = () => {
               className="text-sm leading-relaxed"
               style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
             >
-              Automated web scraping of real-time and historical news articles with exact publisher sources and publication timestamps.
+              Automated web scraping of real-time and historical news articles with exact publisher sources.
             </p>
           </div>
           <div>
@@ -577,64 +750,239 @@ const DataManagement = () => {
             </button>
           </div>
         </div>
-        {/* Search Documents Card */}
-        <div className="card shadow-sm border border-gray-100 flex flex-col">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4"><Search size={18} /> Search Documents</h3>
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <div className="form-control flex items-center gap-2" style={{ flex: 1, padding: '0.6rem 1rem' }}>
-              <Search size={18} className="text-muted" />
-              <input 
-                type="text" 
-                placeholder="Search raw text, titles..." 
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: 'inherit', outline: 'none', width: '100%' }} 
-              />
+
+        {/* LinkedIn Post Scraper Quick Card */}
+        <div 
+          className="card shadow-sm flex flex-col justify-between"
+          style={{
+            borderColor: 'var(--border-color)',
+            background: 'var(--surface-color)'
+          }}
+        >
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 
+                className="text-lg font-semibold flex items-center gap-2"
+                style={{ color: 'var(--text-primary)', margin: 0 }}
+              >
+                <div 
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(10, 102, 194, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0a66c2'
+                  }}
+                >
+                  <LinkedinIcon size={18} color="#0a66c2" />
+                </div>
+                <span>LinkedIn Post Scraper</span>
+              </h3>
             </div>
-            <button type="submit" className="btn btn-secondary shadow-sm">Search</button>
-          </form>
-          <div className="mt-4 text-sm text-secondary">
-            Find documents by content or metadata to inspect or delete them.
+            <p 
+              className="text-sm leading-relaxed"
+              style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
+            >
+              Extract a single post URL and all its comments with noise filtering into individual documents.
+            </p>
+          </div>
+          <div>
+            <button 
+              type="button" 
+              onClick={handleOpenLinkedInModal}
+              className="btn w-full flex items-center justify-center gap-2 font-semibold shadow-sm"
+              style={{
+                background: 'linear-gradient(135deg, #0a66c2 0%, #004182 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                cursor: 'pointer'
+              }}
+            >
+              <LinkedinIcon size={16} color="#ffffff" />
+              <span>Scrape Post URL</span>
+            </button>
+          </div>
+        </div>
+
+        {/* LinkedIn Opinion Discovery Card */}
+        <div 
+          className="card shadow-sm flex flex-col justify-between"
+          style={{
+            borderColor: 'var(--border-color)',
+            background: 'var(--surface-color)'
+          }}
+        >
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 
+                className="text-lg font-semibold flex items-center gap-2"
+                style={{ color: 'var(--text-primary)', margin: 0 }}
+              >
+                <div 
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(2, 132, 199, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#0284c7'
+                  }}
+                >
+                  <Compass size={18} color="#0284c7" />
+                </div>
+                <span>LinkedIn Discovery</span>
+              </h3>
+            </div>
+            <p 
+              className="text-sm leading-relaxed"
+              style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
+            >
+              Discover LinkedIn posts by organisation name and filter direct opinions using Allam-2-7B.
+            </p>
+          </div>
+          <div>
+            <Link 
+              to={`/entity/${selectedEntity.entityId}/linkedin-discovery`}
+              className="btn w-full flex items-center justify-center gap-2 font-semibold shadow-sm"
+              style={{
+                background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                textDecoration: 'none'
+              }}
+            >
+              <Compass size={16} />
+              <span>Discover Opinions</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* YouTube Review Discovery Card */}
+        <div 
+          className="card shadow-sm flex flex-col justify-between"
+          style={{
+            borderColor: 'var(--border-color)',
+            background: 'var(--surface-color)'
+          }}
+        >
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 
+                className="text-lg font-semibold flex items-center gap-2"
+                style={{ color: 'var(--text-primary)', margin: 0 }}
+              >
+                <div 
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ef4444'
+                  }}
+                >
+                  <YouTubeIcon size={18} color="#ef4444" />
+                </div>
+                <span>YouTube Discovery</span>
+              </h3>
+            </div>
+            <p 
+              className="text-sm leading-relaxed"
+              style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
+            >
+              Discover video reviews, student experiences, and feedback with transcript extraction.
+            </p>
+          </div>
+          <div>
+            <Link 
+              to={`/entity/${selectedEntity.entityId}/discovery/youtube`}
+              className="btn w-full flex items-center justify-center gap-2 font-semibold shadow-sm"
+              style={{
+                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                textDecoration: 'none'
+              }}
+            >
+              <YouTubeIcon size={16} color="#ffffff" />
+              <span>Discover Reviews</span>
+            </Link>
           </div>
         </div>
 
         {/* Bulk Upload CSV Card */}
-        <div className="card shadow-sm border border-gray-100 flex flex-col justify-between" style={{ minHeight: '260px' }}>
+        <div 
+          className="card shadow-sm flex flex-col justify-between md:col-span-2 lg:col-span-2" 
+          style={{ 
+            borderColor: 'var(--border-color)', 
+            background: 'var(--surface-color)', 
+            minHeight: '260px' 
+          }}
+        >
           <div>
-            <div className="flex justify-between items-start mb-2.5">
+            <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
               <div>
-                <h3 className="text-lg font-semibold flex items-center gap-2" style={{ margin: 0 }}>
-                  <Upload size={18} className="text-primary" /> Bulk Upload CSV
+                <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)', margin: 0 }}>
+                  <div 
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: 'rgba(37, 99, 235, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent-blue)'
+                    }}
+                  >
+                    <Upload size={18} />
+                  </div>
+                  <span>Bulk Upload CSV</span>
                 </h3>
-                <p className="text-secondary text-xs mt-0.5">Manual offline dataset ingestion for Narrative Intelligence.</p>
+                <p className="text-secondary text-xs mt-1">Manual offline dataset ingestion for Narrative Intelligence processing.</p>
               </div>
               <button
                 type="button"
                 onClick={handleDownloadCsvTemplate}
-                className="btn btn-secondary shadow-sm text-xs flex items-center gap-1.5 py-1 px-2.5 shrink-0"
+                className="btn btn-secondary shadow-sm text-xs flex items-center gap-1.5 py-1 px-3 shrink-0"
                 title="Download standard student reviews CSV template"
-                style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                style={{ fontSize: '0.78rem', height: '32px', whiteSpace: 'nowrap' }}
               >
-                <Download size={13} />
-                <span>Template</span>
+                <Download size={14} />
+                <span>Download Template</span>
               </button>
             </div>
 
             {/* Expected CSV Format Section */}
             <div 
-              className="rounded-lg p-2.5 mb-3" 
+              className="rounded-lg p-3 mb-3.5" 
               style={{ backgroundColor: 'var(--bg-color)', border: '1px solid var(--border-color)' }}
             >
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <span className="font-semibold text-xs flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-                  <FileSpreadsheet size={14} className="text-blue-500 shrink-0" />
+                  <FileSpreadsheet size={15} className="text-blue-500 shrink-0" />
                   <span>Expected CSV Format</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowFormatModal(true)}
                   className="btn btn-secondary shadow-sm text-xs flex items-center gap-1.5 shrink-0"
-                  style={{ height: '26px', padding: '0 0.65rem', fontSize: '0.725rem' }}
+                  style={{ height: '26px', padding: '0 0.65rem', fontSize: '0.75rem' }}
                   title="View column specifications, accepted aliases, and sample row"
                 >
                   <Info size={13} className="text-blue-500" />
@@ -797,6 +1145,34 @@ const DataManagement = () => {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Search Documents Bar */}
+      <div className="card shadow-sm mb-6 p-4 border" style={{ borderColor: 'var(--border-color)', background: 'var(--surface-color)' }}>
+        <form onSubmit={handleSearch} className="flex items-center gap-3">
+          <div className="form-control flex items-center gap-2" style={{ flex: 1, padding: '0.65rem 1rem' }}>
+            <Search size={18} className="text-muted" />
+            <input 
+              type="text" 
+              placeholder="Search documents by raw text, title, author, or source..." 
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ background: 'transparent', border: 'none', color: 'inherit', outline: 'none', width: '100%' }} 
+            />
+          </div>
+          <button type="submit" className="btn btn-secondary shadow-sm font-medium" style={{ height: '42px', padding: '0 1.5rem' }}>
+            Search
+          </button>
+          {query && (
+            <button 
+              type="button" 
+              onClick={() => { setQuery(''); fetchData('', 1); }}
+              className="btn btn-ghost text-xs"
+            >
+              Clear
+            </button>
+          )}
+        </form>
       </div>
 
       {loading ? (
@@ -1852,6 +2228,479 @@ const DataManagement = () => {
                 style={{ height: '36px', padding: '0 1.25rem' }}
               >
                 Got It
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LinkedIn Scraper Modal */}
+      {showLinkedInModal && (
+        <div 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            backgroundColor: 'rgba(15, 23, 42, 0.75)', 
+            backdropFilter: 'blur(6px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 9999, 
+            padding: '1.5rem' 
+          }}
+          onClick={() => { if (!isExtractingLinkedIn && !isIngestingLinkedIn) setShowLinkedInModal(false); }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{ 
+              backgroundColor: 'var(--surface-color-strong, #111827)', 
+              borderRadius: '16px', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.55)', 
+              width: '100%', 
+              maxWidth: '880px', 
+              maxHeight: '90vh', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden',
+              border: '1px solid var(--border-color)'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
+              <div className="flex items-center gap-3">
+                <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(10, 102, 194, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0a66c2' }}>
+                  <LinkedinIcon size={24} color="#0a66c2" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>LinkedIn Post & Comments Intelligence Scraper</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Extract post content and audience discussions via Apify for deep narrative extraction.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => { if (!isExtractingLinkedIn && !isIngestingLinkedIn) setShowLinkedInModal(false); }}
+                disabled={isExtractingLinkedIn || isIngestingLinkedIn}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div 
+              style={{ 
+                padding: '1.5rem', 
+                overflowY: 'auto', 
+                flex: 1, 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '1.25rem' 
+              }}
+            >
+              {/* Form Input Section */}
+              <form onSubmit={handleExtractLinkedIn} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
+                    LinkedIn Post URL *
+                  </label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="url" 
+                      placeholder="https://www.linkedin.com/posts/... or https://www.linkedin.com/feed/update/urn:li:activity:..."
+                      value={linkedInUrl}
+                      onChange={(e) => setLinkedInUrl(e.target.value)}
+                      disabled={isExtractingLinkedIn || isIngestingLinkedIn}
+                      className="form-control"
+                      style={{ flex: 1, fontSize: '0.875rem' }}
+                      required
+                    />
+                  </div>
+                  <p className="text-xs text-muted mt-1.5">
+                    Supports LinkedIn posts, activity updates, and pulse articles. Tracking parameters are automatically stripped.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 p-3 rounded-xl border" style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-secondary">
+                      Max Comments to Fetch
+                    </label>
+                    <span className="text-xs text-muted">
+                      Requests maximum practical comments (up to 100). Logged-out scrapers may receive fewer comments.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="number"
+                      min="10"
+                      max="100"
+                      step="10"
+                      value={linkedInNumComments}
+                      onChange={(e) => setLinkedInNumComments(Math.min(100, Math.max(10, Number(e.target.value) || 100)))}
+                      disabled={isExtractingLinkedIn || isIngestingLinkedIn}
+                      className="form-control"
+                      style={{ width: '80px', textAlign: 'center', fontWeight: 600 }}
+                    />
+                    <span className="text-xs text-muted">comments</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <div className="text-xs text-muted">
+                    {linkedInExtractedData ? (
+                      <span className="text-green-600 dark:text-green-400 font-medium flex items-center gap-1">
+                        <CheckCircle2 size={14} /> Extraction completed. Inspect preview below.
+                      </span>
+                    ) : (
+                      <span>Data is previewed and cleaned before adding to documents.</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {linkedInExtractedData && (
+                      <button
+                        type="button"
+                        onClick={handleResetLinkedIn}
+                        disabled={isExtractingLinkedIn || isIngestingLinkedIn}
+                        className="btn btn-secondary text-xs"
+                      >
+                        Reset / New URL
+                      </button>
+                    )}
+                    <button 
+                      type="submit" 
+                      disabled={isExtractingLinkedIn || isIngestingLinkedIn || !linkedInUrl.trim()}
+                      className="btn font-semibold flex items-center gap-2 shadow-sm"
+                      style={{
+                        background: 'linear-gradient(135deg, #0a66c2 0%, #004182 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        padding: '0.65rem 1.4rem',
+                        borderRadius: '8px',
+                        cursor: isExtractingLinkedIn ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {isExtractingLinkedIn ? (
+                        <>
+                          <Loader2 size={16} className="spin" />
+                          <span>Extracting from LinkedIn...</span>
+                        </>
+                      ) : (
+                        <>
+                          <LinkedinIcon size={16} color="#ffffff" />
+                          <span>Extract Post & Comments</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Extraction Error Alert */}
+              {linkedInExtractError && (
+                <div 
+                  className="p-4 rounded-xl border flex flex-col gap-2"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.25)', color: 'var(--text-primary)' }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                    <div className="text-sm font-medium">
+                      {linkedInExtractError}
+                    </div>
+                  </div>
+                  {linkedInExtractError.toLowerCase().includes('apify_api_token') && (
+                    <div className="text-xs text-secondary pl-7">
+                      <strong>Setup Hint:</strong> Get your API token from your <a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">Apify Console</a>, then add <code>APIFY_API_TOKEN=your_token_here</code> to <code>backend/.env</code> and restart your backend.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Extracted Data Preview Container */}
+              {linkedInExtractedData && (
+                <div className="flex flex-col gap-5 pt-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                  
+                  {/* POST PREVIEW CARD */}
+                  <div 
+                    className="rounded-xl p-4 border"
+                    style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider"
+                          style={{ backgroundColor: 'rgba(10, 102, 194, 0.15)', color: '#0a66c2' }}
+                        >
+                          LinkedIn Post
+                        </span>
+                        <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                          {linkedInExtractedData.post.author}
+                        </span>
+                        {linkedInExtractedData.post.authorHeadline && (
+                          <span className="text-xs text-muted truncate max-w-xs" title={linkedInExtractedData.post.authorHeadline}>
+                            • {linkedInExtractedData.post.authorHeadline}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted">
+                        {linkedInExtractedData.post.publicationDate && (
+                          <span>{new Date(linkedInExtractedData.post.publicationDate).toLocaleDateString()}</span>
+                        )}
+                        <a 
+                          href={linkedInExtractedData.post.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:underline flex items-center gap-1 font-medium"
+                        >
+                          <span>Open Post</span>
+                          <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    </div>
+
+                    <div 
+                      className="p-3.5 rounded-lg text-sm leading-relaxed border"
+                      style={{ 
+                        backgroundColor: 'var(--surface-color)', 
+                        borderColor: 'var(--border-color)',
+                        color: 'var(--text-primary)',
+                        maxHeight: '180px',
+                        overflowY: 'auto',
+                        whiteSpace: 'pre-wrap'
+                      }}
+                    >
+                      {linkedInExtractedData.post.rawText || '(No text content in post)'}
+                    </div>
+
+                    <div className="flex flex-wrap gap-4 mt-3 pt-2 text-xs text-secondary border-t" style={{ borderColor: 'var(--border-color)' }}>
+                      <span><strong>Reactions:</strong> {linkedInExtractedData.post.likesCount || 0}</span>
+                      <span><strong>Comments on LinkedIn:</strong> {linkedInExtractedData.post.commentsCount || 0}</span>
+                      <span><strong>Reposts:</strong> {linkedInExtractedData.post.repostsCount || 0}</span>
+                    </div>
+                  </div>
+
+                  {/* COMMENTS METRICS & FILTER SUMMARY BANNER */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-3 rounded-xl border text-center" style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}>
+                      <div className="text-xs text-muted uppercase font-semibold">Total Retrieved</div>
+                      <div className="text-xl font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>
+                        {linkedInExtractedData.metrics.totalRetrieved}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl border text-center" style={{ backgroundColor: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgba(34, 197, 94, 0.25)' }}>
+                      <div className="text-xs text-green-600 dark:text-green-400 uppercase font-semibold">Retained Cleaned</div>
+                      <div className="text-xl font-bold text-green-600 dark:text-green-400 mt-0.5">
+                        {linkedInExtractedData.metrics.totalRetained}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl border text-center" style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}>
+                      <div className="text-xs text-muted uppercase font-semibold">Noise Filtered</div>
+                      <div className="text-xl font-bold text-secondary mt-0.5" title={`Empty: ${linkedInExtractedData.metrics.filteredBreakdown.empty}, URLs only: ${linkedInExtractedData.metrics.filteredBreakdown.urls_only}, Fluff (#CFBR): ${linkedInExtractedData.metrics.filteredBreakdown.engagement_fluff}, Duplicates: ${linkedInExtractedData.metrics.filteredBreakdown.duplicate}`}>
+                        {linkedInExtractedData.metrics.filteredCount}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl border text-center" style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}>
+                      <div className="text-xs text-muted uppercase font-semibold">Coverage Status</div>
+                      <div className="text-xs font-semibold mt-1.5" style={{ color: linkedInExtractedData.metrics.isTruncated ? '#eab308' : '#22c55e' }}>
+                        {linkedInExtractedData.metrics.isTruncated ? 'Partial (Logged-Out)' : 'All Available'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Truncation / Depth notice if applicable */}
+                  {linkedInExtractedData.metrics.truncationNotice && (
+                    <div 
+                      className="p-3 rounded-xl border text-xs flex items-start gap-2.5"
+                      style={{ backgroundColor: 'rgba(234, 179, 8, 0.08)', borderColor: 'rgba(234, 179, 8, 0.25)', color: 'var(--text-primary)' }}
+                    >
+                      <Info size={16} className="text-yellow-500 shrink-0 mt-0.5" />
+                      <div>{linkedInExtractedData.metrics.truncationNotice}</div>
+                    </div>
+                  )}
+
+                  {/* COMMENTS LIST PREVIEW (PAGINATED) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <h4 className="text-sm font-semibold m-0" style={{ color: 'var(--text-primary)' }}>
+                        Cleaned Comments ({linkedInExtractedData.comments.length})
+                      </h4>
+                      {linkedInExtractedData.comments.length > commentsPerPage && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-muted">
+                            Page {commentsPage} of {Math.ceil(linkedInExtractedData.comments.length / commentsPerPage)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCommentsPage(p => Math.max(1, p - 1))}
+                            disabled={commentsPage === 1}
+                            className="btn btn-secondary py-0.5 px-2 text-xs"
+                            style={{ height: '26px' }}
+                          >
+                            <ChevronLeft size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCommentsPage(p => Math.min(Math.ceil(linkedInExtractedData.comments.length / commentsPerPage), p + 1))}
+                            disabled={commentsPage >= Math.ceil(linkedInExtractedData.comments.length / commentsPerPage)}
+                            className="btn btn-secondary py-0.5 px-2 text-xs"
+                            style={{ height: '26px' }}
+                          >
+                            <ChevronRight size={13} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {linkedInExtractedData.comments.length === 0 ? (
+                      <div className="p-4 rounded-xl text-center border text-xs text-muted" style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}>
+                        No comments available or all comments were filtered as noise/fluff.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2.5">
+                        {linkedInExtractedData.comments
+                          .slice((commentsPage - 1) * commentsPerPage, commentsPage * commentsPerPage)
+                          .map((c, idx) => (
+                            <div 
+                              key={c.id || idx}
+                              className="p-3 rounded-xl border text-xs flex flex-col gap-1.5"
+                              style={{ backgroundColor: 'var(--bg-color)', borderColor: 'var(--border-color)' }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                    {c.author}
+                                  </span>
+                                  {c.isReply && (
+                                    <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-[10px] font-medium">
+                                      Reply {c.parentAuthor ? `to @${c.parentAuthor}` : ''}
+                                    </span>
+                                  )}
+                                  {c.authorHeadline && (
+                                    <span className="text-muted truncate max-w-xs hidden sm:inline" title={c.authorHeadline}>
+                                      • {c.authorHeadline}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-muted">
+                                  {c.likesCount > 0 && (
+                                    <span>👍 {c.likesCount}</span>
+                                  )}
+                                  {c.publicationDate && (
+                                    <span>{new Date(c.publicationDate).toLocaleDateString()}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="leading-relaxed" style={{ color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                                {c.rawText}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* INGESTION RESULT BANNER */}
+                  {linkedInIngestResult && (
+                    <div 
+                      className="p-4 rounded-xl border flex flex-col gap-2.5"
+                      style={{ backgroundColor: 'rgba(34, 197, 94, 0.08)', borderColor: 'rgba(34, 197, 94, 0.25)', color: 'var(--text-primary)' }}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <CheckCircle2 size={18} className="text-green-500 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-sm font-bold text-green-600 dark:text-green-400">
+                            {linkedInIngestResult.message}
+                          </div>
+                          {linkedInIngestResult.batchId && (
+                            <div className="text-xs text-muted mt-0.5 font-mono">
+                              Batch ID: {linkedInIngestResult.batchId}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 pl-7 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setShowLinkedInModal(false); }}
+                          className="btn btn-secondary text-xs"
+                        >
+                          View In Documents Table
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { navigate(`/entity/${selectedEntity.entityId}/processing`); }}
+                          className="btn btn-primary text-xs flex items-center gap-1.5"
+                        >
+                          <span>Proceed to AI Processing</span>
+                          <ArrowRight size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* INGESTION ERROR ALERT */}
+                  {linkedInIngestError && (
+                    <div 
+                      className="p-3.5 rounded-xl border text-sm flex items-start gap-2.5"
+                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.25)', color: 'var(--text-primary)' }}
+                    >
+                      <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                      <div>{linkedInIngestError}</div>
+                    </div>
+                  )}
+
+                  {/* INGEST ACTION BUTTON */}
+                  {!linkedInIngestResult && (
+                    <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-color)' }}>
+                      <span className="text-xs text-muted">
+                        Adds 1 post document + {linkedInExtractedData.comments.length} comment document(s) separately into MongoDB.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleIngestLinkedIn}
+                        disabled={isIngestingLinkedIn}
+                        className="btn font-semibold flex items-center gap-2 shadow-sm"
+                        style={{
+                          background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
+                          color: '#ffffff',
+                          border: 'none',
+                          padding: '0.75rem 1.75rem',
+                          borderRadius: '8px',
+                          cursor: isIngestingLinkedIn ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        {isIngestingLinkedIn ? (
+                          <>
+                            <Loader2 size={16} className="spin" />
+                            <span>Saving Documents & Creating Job...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={16} />
+                            <span>Add as Documents (1 Post + {linkedInExtractedData.comments.length} Comments)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '0.85rem 1.5rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', backgroundColor: 'var(--bg-color)' }}>
+              <button 
+                type="button"
+                onClick={() => { if (!isExtractingLinkedIn && !isIngestingLinkedIn) setShowLinkedInModal(false); }}
+                className="btn btn-secondary text-xs"
+                disabled={isExtractingLinkedIn || isIngestingLinkedIn}
+              >
+                Close
               </button>
             </div>
           </div>

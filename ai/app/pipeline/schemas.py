@@ -198,5 +198,30 @@ class YouTubeExtractResponse(BaseModel):
     estimated_reading_minutes: int = 0
     source: str = "YouTube"
     source_type: str = "YouTube Video"
+
+# ============================================================
+# LINKEDIN OPINION CLASSIFICATION (Allam-2-7B SLM)
+# ============================================================
+
+class LinkedInPostToClassify(BaseModel):
+    id: str
+    text: str
+
+class LinkedInClassifyRequest(BaseModel):
+    organisation_name: str
+    aliases: List[str] = Field(default_factory=list)
+    posts: List[LinkedInPostToClassify]
+
+class LinkedInPostClassification(BaseModel):
+    id: str
+    classification: str = "Uncertain"  # "Relevant Opinion" | "News / Announcement" | "Irrelevant" | "Uncertain"
+    is_directly_about_organisation: bool = False
+    contains_opinion: bool = False
+    opinion_type: str = "None"
+    reason: str = ""
+    requires_manual_inspection: bool = False
+
+class LinkedInClassifyResponse(BaseModel):
+    classified_posts: List[LinkedInPostClassification]
     transcript: Optional[Dict[str, Any]] = None
     comments: Optional[Dict[str, Any]] = None

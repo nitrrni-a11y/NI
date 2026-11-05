@@ -6,6 +6,9 @@ import DataManagement from './pages/DataManagement';
 import AddData from './pages/AddData';
 import Processing from './pages/Processing';
 import Narratives from './pages/Narratives';
+import LinkedInPostScraper from './pages/LinkedInPostScraper';
+import LinkedInDiscovery from './pages/LinkedInDiscovery';
+import YouTubeDiscovery from './pages/YouTubeDiscovery';
  
 import GlobalLayout from './components/GlobalLayout';
 import Domains from './pages/Domains';
@@ -28,6 +31,13 @@ function App() {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="institution" element={<Institution />} />
+          <Route path="linkedin-post" element={<Navigate to="../data/add?tab=linkedin" replace />} />
+          <Route path="youtube-extractor" element={<Navigate to="../data/add?tab=youtube" replace />} />
+          <Route path="discovery" element={<Navigate to="youtube" replace />} />
+          <Route path="discovery/youtube" element={<YouTubeDiscovery />} />
+          <Route path="discovery/linkedin" element={<LinkedInDiscovery />} />
+          <Route path="youtube-discovery" element={<YouTubeDiscovery />} />
+          <Route path="linkedin-discovery" element={<LinkedInDiscovery />} />
           <Route path="data" element={<DataManagement />} />
           <Route path="data/add" element={<AddData />} />
           <Route path="processing" element={<Processing />} />

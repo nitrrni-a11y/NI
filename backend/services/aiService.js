@@ -156,6 +156,32 @@ const aiService = {
   extractYouTubeTranscript: async function(url, options = {}) {
     return this.extractYouTubeData(url, options);
   },
+
+  /**
+   * Classify discovered LinkedIn posts for direct opinions using the Allam-2-7B SLM via AI service.
+   */
+  classifyLinkedInOpinions: async (organisationName, aliases = [], posts = []) => {
+    try {
+      const response = await axios.post(
+        `${getAiServiceUrl()}/classify/linkedin-opinions`,
+        {
+          organisation_name: organisationName,
+          aliases,
+          posts: posts.map(p => ({ id: p.id, text: p.rawText || p.text || '' }))
+        },
+        { timeout: 120000 }
+      );
+      return response.data;
+    } catch (error) {
+      let errorMsg = error.message;
+      if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : JSON.stringify(error.response.data.detail);
+      }
+      throw new Error(`AI Service opinion classification error: ${errorMsg}`);
+    }
+  },
 };
 
 export default aiService;

@@ -9,11 +9,47 @@ import {
   Cpu,
   Network,
   GraduationCap,
+  Compass,
   Settings,
   LogOut,
   MoonStar,
   SunMedium,
 } from 'lucide-react';
+
+const LinkedinIcon = ({ size = 18, color = 'currentColor' }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+    <rect x="2" y="9" width="4" height="12" />
+    <circle cx="4" cy="4" r="2" />
+  </svg>
+);
+
+const YoutubeIcon = ({ size = 18, color = 'currentColor' }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke={color} 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    style={{ flexShrink: 0 }}
+  >
+    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill={color} />
+  </svg>
+);
 
 const getInitialTheme = () => {
   const savedTheme = localStorage.getItem('ni-admin-theme');
@@ -42,11 +78,35 @@ const AdminLayout = () => {
   const navItems = [
     { path: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { path: 'institution', label: 'NIT Raipur Web Scraping', icon: <GraduationCap size={18} /> },
+    { path: 'data/add?tab=linkedin', key: 'linkedin-scraper', label: 'LinkedIn Post Scraper', icon: <LinkedinIcon size={18} color="#0a66c2" /> },
+    { path: 'data/add?tab=youtube', key: 'youtube-extractor', label: 'YouTube Transcript & Comment Extractor', icon: <YoutubeIcon size={18} color="#ef4444" /> },
+    { path: 'discovery/youtube', key: 'source-discovery', label: 'Source Discovery', icon: <Compass size={18} color="#0284c7" /> },
     { path: 'data', label: 'Data Management', icon: <Database size={18} /> },
-    { path: 'data/add', label: 'Add Data', icon: <PlusCircle size={18} /> },
+    { path: 'data/add', key: 'add-data', label: 'Add Data', icon: <PlusCircle size={18} /> },
     { path: 'processing', label: 'AI Processing', icon: <Cpu size={18} /> },
     { path: 'narratives', label: 'Narratives', icon: <Network size={18} /> },
   ];
+
+  const isItemActive = (item) => {
+    const pathname = location.pathname;
+    const search = location.search;
+
+    if (item.key === 'linkedin-scraper') {
+      return (pathname.endsWith('/data/add') && search.includes('tab=linkedin')) || pathname.includes('linkedin-post');
+    }
+    if (item.key === 'youtube-extractor') {
+      return (pathname.endsWith('/data/add') && search.includes('tab=youtube')) || pathname.includes('youtube-extractor');
+    }
+    if (item.key === 'add-data') {
+      return pathname.endsWith('/data/add') && !search.includes('tab=linkedin') && !search.includes('tab=youtube');
+    }
+    if (item.key === 'source-discovery') {
+      return pathname.includes('/discovery') || pathname.includes('youtube-discovery') || pathname.includes('linkedin-discovery');
+    }
+
+    const cleanPath = item.path.split('?')[0];
+    return pathname.split('/').pop() === cleanPath || (cleanPath === 'dashboard' && pathname.endsWith('/dashboard'));
+  };
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
@@ -70,18 +130,17 @@ const AdminLayout = () => {
 
         <nav className="sidebar-nav">
           {navItems.filter(item => item.path !== 'institution' || selectedEntity?.entityId === 'ENT_45528e0f').map((item) => {
-            // Check if current path ends with the item path to set active state
-            // E.g. /entity/nit_raipur/dashboard ends with dashboard
-            const isActive = location.pathname.split('/').pop() === item.path || (item.path === 'dashboard' && location.pathname.endsWith('/dashboard'));
+            const isActive = isItemActive(item);
             
             return (
               <Link
-                key={item.path}
+                key={item.key || item.path}
                 to={item.path}
                 className={`nav-item ${isActive ? 'active' : ''}`}
+                title={item.label}
               >
                 {item.icon}
-                <span>{item.label}</span>
+                <span style={{ lineHeight: 1.25 }}>{item.label}</span>
               </Link>
             );
           })}
