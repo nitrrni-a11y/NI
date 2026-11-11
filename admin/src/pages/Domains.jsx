@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
 import { Folder, Plus, Server, LayoutGrid } from 'lucide-react';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 
 const Domains = () => {
   const { entities, loading } = useEntity();
@@ -13,8 +13,8 @@ const Domains = () => {
 
   useEffect(() => {
     // Fetch domains from backend
-    axios.get('/api/domains', { withCredentials: true })
-      .then(res => setDbDomains(res.data))
+    api.get('/domains')
+      .then(res => setDbDomains(toArray(res.data, 'domains')))
       .catch(err => console.error('Failed to fetch domains', err));
   }, []);
 
@@ -22,14 +22,18 @@ const Domains = () => {
 
   // Derive domains from both the Domain collection and existing entities
   const domainMap = {};
-  
+  const safeDbDomains = Array.isArray(dbDomains) ? dbDomains : [];
+  const safeEntities = Array.isArray(entities) ? entities : [];
+
   // First populate from dbDomains
-  dbDomains.forEach(d => {
+  safeDbDomains.forEach(d => {
+    if (!d?.name) return;
     domainMap[d.name] = { count: 0, entities: [], description: d.description };
   });
 
   // Then populate from entities
-  entities.forEach(entity => {
+  safeEntities.forEach(entity => {
+    if (!entity?.domain) return;
     if (!domainMap[entity.domain]) {
       domainMap[entity.domain] = { count: 0, entities: [] };
     }
@@ -42,7 +46,7 @@ const Domains = () => {
   const handleContinue = async () => {
     if (!newDomain.trim()) return;
     try {
-      await axios.post('/api/domains', { name: newDomain.trim() }, { withCredentials: true });
+      await api.post('/domains', { name: newDomain.trim() });
     } catch (err) {
       // If 400, it likely means it already exists, which is fine, we just navigate
       if (err.response?.status !== 400) {

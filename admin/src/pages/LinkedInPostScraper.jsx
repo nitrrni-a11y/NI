@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { 
   CheckCircle2, AlertCircle, X, ExternalLink, Loader2, ArrowRight,
@@ -57,10 +57,10 @@ const LinkedInPostScraper = () => {
     setCommentsPage(1);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/extract', {
+      const res = await api.post('/scraper/linkedin/extract', {
         url: trimmedUrl,
         numComments
-      }, { withCredentials: true });
+      });
 
       setExtractedData(res.data);
     } catch (err) {
@@ -82,11 +82,11 @@ const LinkedInPostScraper = () => {
     setIngestError(null);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/ingest', {
+      const res = await api.post('/scraper/linkedin/ingest', {
         entityId: selectedEntity.entityId,
         post: extractedData.post,
         comments: extractedData.comments || []
-      }, { withCredentials: true });
+      });
 
       setIngestResult(res.data);
     } catch (err) {

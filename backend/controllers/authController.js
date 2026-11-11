@@ -1,22 +1,25 @@
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 
-const getJwtCookieOptions = () => {
-  const isProd = process.env.NODE_ENV === 'production';
+const getJwtCookieOptions = (req) => {
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    Boolean(req?.secure) ||
+    req?.headers?.['x-forwarded-proto'] === 'https';
   return {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'strict',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
   };
 };
 
-const generateToken = (res, userId) => {
+const generateToken = (res, userId, req = null) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 
   res.cookie('jwt', token, {
-    ...getJwtCookieOptions(),
+    ...getJwtCookieOptions(req),
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 };
@@ -43,7 +46,7 @@ const registerUser = async (req, res) => {
     });
 
     if (user) {
-      generateToken(res, user._id);
+      generateToken(res, user._id, req);
       res.status(201).json({
         _id: user._id,
         name: user.name,
@@ -68,7 +71,7 @@ const loginUser = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await user.matchPassword(password))) {
-      generateToken(res, user._id);
+      generateToken(res, user._id, req);
       res.json({
         _id: user._id,
         name: user.name,
@@ -88,7 +91,7 @@ const loginUser = async (req, res) => {
 // @access  Public
 const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
-    ...getJwtCookieOptions(),
+    ...getJwtCookieOptions(req),
     expires: new Date(0),
   });
   res.status(200).json({ message: 'Logged out successfully' });

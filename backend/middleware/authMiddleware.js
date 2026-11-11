@@ -10,13 +10,13 @@ const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       req.user = await User.findById(decoded.userId).select('-password');
       if (!req.user) {
-        res.cookie('jwt', '', { ...getJwtCookieOptions(), expires: new Date(0) });
+        res.cookie('jwt', '', { ...getJwtCookieOptions(req), expires: new Date(0) });
         return res.status(401).json({ message: 'Not authorized, user not found' });
       }
       next();
     } catch (error) {
       console.error(error);
-      res.cookie('jwt', '', { ...getJwtCookieOptions(), expires: new Date(0) });
+      res.cookie('jwt', '', { ...getJwtCookieOptions(req), expires: new Date(0) });
       res.status(401).json({ message: 'Not authorized, token failed' });
     }
   } else {

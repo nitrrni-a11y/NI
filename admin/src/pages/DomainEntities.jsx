@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
 import { Search, Plus, Building2, ArrowRight, ArrowLeft, X } from 'lucide-react';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 
 const DomainEntities = () => {
   const { domain } = useParams();
@@ -21,9 +21,10 @@ const DomainEntities = () => {
 
   // Fetch Domain Details
   React.useEffect(() => {
-    axios.get('/api/domains', { withCredentials: true })
+    api.get('/domains')
       .then(res => {
-        const found = res.data.find(d => d.name === domain);
+        const domainList = toArray(res.data, 'domains');
+        const found = domainList.find(d => d.name === domain);
         if (found) {
           setDbDomain(found);
           setEditDomainData({ name: found.name, description: found.description || '' });
@@ -37,7 +38,7 @@ const DomainEntities = () => {
     setIsDomainSubmitting(true);
     setDomainError('');
     try {
-      await axios.put(`/api/domains/${dbDomain._id}`, editDomainData, { withCredentials: true });
+      await api.put(`/domains/${dbDomain._id}`, editDomainData);
       // On success, redirect to the new domain name
       navigate(`/domains/${encodeURIComponent(editDomainData.name.trim())}`, { replace: true });
       window.location.reload(); // Force reload to fetch updated entities if name changed
@@ -52,7 +53,7 @@ const DomainEntities = () => {
     setIsDomainSubmitting(true);
     setDomainError('');
     try {
-      await axios.delete(`/api/domains/${dbDomain._id}`, { withCredentials: true });
+      await api.delete(`/domains/${dbDomain._id}`);
       navigate('/', { replace: true });
     } catch (error) {
       setDomainError(error.response?.data?.message || 'Failed to delete domain');
@@ -72,7 +73,8 @@ const DomainEntities = () => {
 
   if (loading) return <div>Loading entities...</div>;
 
-  const domainEntities = entities.filter(e => e.domain === domain);
+  const safeEntities = Array.isArray(entities) ? entities : [];
+  const domainEntities = safeEntities.filter(e => e.domain === domain);
   const filteredEntities = domainEntities.filter(e => 
     e.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     e.entityType.toLowerCase().includes(searchTerm.toLowerCase())
@@ -88,12 +90,12 @@ const DomainEntities = () => {
     
     setIsSubmitting(true);
     try {
-      const res = await axios.post('/api/entities', {
+      const res = await api.post('/entities', {
         name: newEntity.name.trim(),
         entityType: newEntity.entityType.trim(),
         domain: domain,
         description: newEntity.description.trim()
-      }, { withCredentials: true });
+      });
       
       // Auto navigate to new entity
       addEntity(res.data);

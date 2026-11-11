@@ -1,38 +1,65 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import api from '../services/api';
+import api, { toArray } from '../services/api';
+import { useAuth } from './AuthContext';
 
 const EntityContext = createContext();
 
 export const EntityProvider = ({ children }) => {
+  const { user, loading: authLoading } = useAuth();
   const [entities, setEntities] = useState([]);
   const [selectedEntity, setSelectedEntity] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      setEntities([]);
+      setSelectedEntity(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
     const fetchEntities = async () => {
+      setLoading(true);
       try {
         const { data } = await api.get('/entities');
-        setEntities(data);
-        
+        const entityList = toArray(data, 'entities');
+        if (cancelled) return;
+        setEntities(entityList);
+
         const savedEntityId = localStorage.getItem('selectedEntityId');
-        if (savedEntityId && data.find(e => e.entityId === savedEntityId)) {
-          setSelectedEntity(data.find(e => e.entityId === savedEntityId));
-        } else if (data.length > 0) {
-          setSelectedEntity(data[0]);
-          localStorage.setItem('selectedEntityId', data[0].entityId);
+        const matched = savedEntityId ? entityList.find(e => e.entityId === savedEntityId) : null;
+        if (matched) {
+          setSelectedEntity(matched);
+        } else if (entityList.length > 0) {
+          setSelectedEntity(entityList[0]);
+          localStorage.setItem('selectedEntityId', entityList[0].entityId);
+        } else {
+          setSelectedEntity(null);
         }
       } catch (error) {
-        console.error('Failed to fetch entities', error);
+        if (!cancelled) {
+          console.error('Failed to fetch entities', error);
+          setEntities([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
-    
+
     fetchEntities();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authLoading]);
 
   const changeEntity = (entityId, reload = false) => {
-    const entity = entities.find(e => e.entityId === entityId);
+    const safeEntities = Array.isArray(entities) ? entities : [];
+    const entity = safeEntities.find(e => e.entityId === entityId);
     if (entity) {
       setSelectedEntity(entity);
       localStorage.setItem('selectedEntityId', entityId);

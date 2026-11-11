@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import {
   PlaySquare, CheckCircle2, AlertCircle, ExternalLink, Loader2, ArrowRight,
@@ -95,7 +95,7 @@ const YouTubeDiscovery = () => {
         aliases.push(...selectedEntity.aliases);
       }
 
-      const res = await axios.post('/api/scraper/youtube/generate-queries', {
+      const res = await api.post('/scraper/youtube/generate-queries', {
         entityId: selectedEntity.entityId,
         entityName: selectedEntity.name,
         domain: selectedEntity.domain,
@@ -171,7 +171,7 @@ const YouTubeDiscovery = () => {
     setSelectedCommentKeysByVideo({});
 
     try {
-      const res = await axios.post('/api/scraper/youtube/discover', {
+      const res = await api.post('/scraper/youtube/discover', {
         queries,
         maxResultsPerQuery: limitPerQuery,
         extractTranscripts,
@@ -227,7 +227,7 @@ const YouTubeDiscovery = () => {
     setTranslationErrorByVideo((prev) => ({ ...prev, [vid]: '' }));
 
     try {
-      const res = await axios.post('/api/documents/youtube/translate', {
+      const res = await api.post('/documents/youtube/translate', {
         text: video.transcriptData.raw_text,
         sourceLanguage: video.transcriptData.detected_language || null,
       }, { withCredentials: true });
@@ -280,7 +280,7 @@ const YouTubeDiscovery = () => {
     updateVideoInState(vid, (v) => ({ ...v, commentsError: null }));
 
     try {
-      const res = await axios.post('/api/documents/youtube/extract', {
+      const res = await api.post('/documents/youtube/extract', {
         url: video.url,
         extractTranscript: false,
         extractComments: true,
@@ -478,7 +478,7 @@ const YouTubeDiscovery = () => {
     setIngestResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/youtube/discover/ingest', {
+      const res = await api.post('/scraper/youtube/discover/ingest', {
         entityId: selectedEntity.entityId,
         videos: videosToIngest,
       }, { withCredentials: true });
@@ -506,7 +506,7 @@ const YouTubeDiscovery = () => {
     setSingleIngestResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/youtube/discover/ingest', {
+      const res = await api.post('/scraper/youtube/discover/ingest', {
         entityId: selectedEntity.entityId,
         videos: [payloadVideo],
       }, { withCredentials: true });

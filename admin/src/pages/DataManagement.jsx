@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 import { 
   Search, PlusCircle, Database, Trash2, Upload, FileText, 
   ChevronLeft, ChevronRight, Globe, Calendar, Clock, Cpu, 
@@ -337,8 +337,7 @@ const DataManagement = () => {
     formData.append('entity_id', selectedEntity.entityId);
 
     try {
-      const res = await axios.post('/api/documents/upload', formData, {
-        withCredentials: true,
+      const res = await api.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setUploadResult({ 
@@ -367,22 +366,22 @@ const DataManagement = () => {
   const fetchData = async (searchQuery = '', page = 1) => {
     setLoading(true);
     try {
-      let endpoint = `/api/documents?pageNumber=${page}&entity_id=${selectedEntity?.entityId || ''}`;
+      let endpoint = `/documents?pageNumber=${page}&entity_id=${selectedEntity?.entityId || ''}`;
       if (searchQuery) {
         endpoint += `&keyword=${encodeURIComponent(searchQuery)}`;
       }
       
-      const response = await axios.get(endpoint, { withCredentials: true });
+      const response = await api.get(endpoint);
       
-      if (response.data && response.data.documents) {
+      if (response.data && Array.isArray(response.data.documents)) {
         setData(response.data.documents);
-        setCurrentPage(response.data.page);
-        setTotalPages(response.data.pages);
-        setTotalCount(response.data.total);
+        setCurrentPage(response.data.page || 1);
+        setTotalPages(response.data.pages || 1);
+        setTotalCount(response.data.total ?? response.data.documents.length);
       } else {
-        const resData = response.data || [];
-        setData(Array.isArray(resData) ? resData : []);
-        setTotalCount(Array.isArray(resData) ? resData.length : 0);
+        const docsList = toArray(response.data, 'documents');
+        setData(docsList);
+        setTotalCount(docsList.length);
       }
       
       setSelectedDocs(new Set());
@@ -426,10 +425,10 @@ const DataManagement = () => {
     try {
       if (deleteConfirmation.type === 'bulk') {
         const ids = Array.from(selectedDocs);
-        await axios.post('/api/documents/bulk-delete', { documentIds: ids }, { withCredentials: true });
+        await api.post('/documents/bulk-delete', { documentIds: ids });
         setSelectedDocs(new Set());
       } else if (deleteConfirmation.type === 'single') {
-        await axios.delete(`/api/documents/${deleteConfirmation.doc}`, { withCredentials: true });
+        await api.delete(`/documents/${deleteConfirmation.doc}`);
         setSelectedDocs(prev => {
           const newSet = new Set(prev);
           newSet.delete(deleteConfirmation.doc);
@@ -469,7 +468,7 @@ const DataManagement = () => {
     setScraperResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/preview', {
+      const res = await api.post('/scraper/preview', {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
@@ -478,11 +477,12 @@ const DataManagement = () => {
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
         limit: Math.min(Number(scrapeLimit) || 10, 25)
-      }, { withCredentials: true });
+      });
 
       if (res.data && res.data.articles) {
-        setPreviewArticles(res.data.articles);
-        if (res.data.articles.length === 0) {
+        const articlesList = toArray(res.data, 'articles');
+        setPreviewArticles(articlesList);
+        if (articlesList.length === 0) {
           setScraperError('No articles found matching your query and timeframe.');
         }
       }
@@ -509,7 +509,7 @@ const DataManagement = () => {
     setScraperResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/scrape', {
+      const res = await api.post('/scraper/scrape', {
         entityId: selectedEntity?.entityId,
         query: scraperQuery.trim(),
         timeframe,
@@ -518,7 +518,7 @@ const DataManagement = () => {
         customStartDate: timeframe === 'custom' ? customStartDate : undefined,
         customEndDate: timeframe === 'custom' ? customEndDate : undefined,
         limit: Number(scrapeLimit) || 25
-      }, { withCredentials: true });
+      });
 
       setScraperResult(res.data);
       // Refresh documents table automatically
@@ -552,10 +552,10 @@ const DataManagement = () => {
     setCommentsPage(1);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/extract', {
+      const res = await api.post('/scraper/linkedin/extract', {
         url: trimmedUrl,
         numComments: linkedInNumComments
-      }, { withCredentials: true });
+      });
 
       setLinkedInExtractedData(res.data);
     } catch (err) {
@@ -577,11 +577,11 @@ const DataManagement = () => {
     setLinkedInIngestError(null);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/ingest', {
+      const res = await api.post('/scraper/linkedin/ingest', {
         entityId: selectedEntity.entityId,
         post: linkedInExtractedData.post,
         comments: linkedInExtractedData.comments || []
-      }, { withCredentials: true });
+      });
 
       setLinkedInIngestResult(res.data);
       fetchData(query, 1);

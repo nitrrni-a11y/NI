@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 import { Search as SearchIcon, AlertCircle, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -14,8 +14,8 @@ const Search = () => {
     // Fetch all narratives once
     const fetchNarratives = async () => {
       try {
-        const { data } = await axios.get('/api/narratives', { withCredentials: true });
-        setAllNarratives(data);
+        const { data } = await api.get('/narratives');
+        setAllNarratives(toArray(data, 'narratives'));
       } catch (err) {
         console.error(err);
       }

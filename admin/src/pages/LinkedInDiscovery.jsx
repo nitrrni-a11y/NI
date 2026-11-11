@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import {
   Compass, CheckCircle2, AlertCircle, ExternalLink, Loader2, ArrowRight,
@@ -112,7 +112,7 @@ const LinkedInDiscovery = () => {
       .filter(Boolean);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/discover', {
+      const res = await api.post('/scraper/linkedin/discover', {
         organisation: cleanOrg,
         aliases,
         limit: limitPerQuery,
@@ -156,7 +156,7 @@ const LinkedInDiscovery = () => {
     setTranslationErrorByPost((prev) => ({ ...prev, [pid]: '' }));
 
     try {
-      const res = await axios.post('/api/documents/youtube/translate', {
+      const res = await api.post('/documents/youtube/translate', {
         text: post.rawText,
         sourceLanguage: post.detectedLanguage || null,
       }, { withCredentials: true });
@@ -204,7 +204,7 @@ const LinkedInDiscovery = () => {
     updatePostInState(pid, (p) => ({ ...p, commentsExtractError: null }));
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/extract', {
+      const res = await api.post('/scraper/linkedin/extract', {
         url: targetUrl,
         numComments: Math.min(100, Math.max(10, Number(numLimit) || 50)),
       }, { withCredentials: true });
@@ -366,7 +366,7 @@ const LinkedInDiscovery = () => {
     setIngestResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/discover/ingest', {
+      const res = await api.post('/scraper/linkedin/discover/ingest', {
         entityId: selectedEntity.entityId,
         posts: postsToIngest,
       }, { withCredentials: true });
@@ -394,7 +394,7 @@ const LinkedInDiscovery = () => {
     setSingleIngestResult(null);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/discover/ingest', {
+      const res = await api.post('/scraper/linkedin/discover/ingest', {
         entityId: selectedEntity.entityId,
         posts: [payloadPost],
       }, { withCredentials: true });

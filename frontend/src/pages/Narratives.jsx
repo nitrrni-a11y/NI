@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 import { Network, TrendingUp, AlertCircle, Bookmark, ArrowLeft, Search, Lightbulb } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useEntity } from '../context/EntityContext';
@@ -37,8 +37,8 @@ const Narratives = () => {
     const fetchNarratives = async () => {
       if (!selectedEntity) return;
       try {
-        const { data } = await axios.get(`/api/narratives?entity_id=${selectedEntity.entityId}`, { withCredentials: true });
-        setNarratives(data);
+        const { data } = await api.get(`/narratives?entity_id=${selectedEntity.entityId}`);
+        setNarratives(toArray(data, 'narratives'));
         setLoading(false);
       } catch (err) {
         console.error(err);

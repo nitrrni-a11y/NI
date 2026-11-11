@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import { 
+import {
   Database, 
   Hash, 
   Cpu, 
@@ -17,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEntity } from '../context/EntityContext';
 import TrendGraph from '../components/TrendGraph';
+import api, { toArray } from '../services/api';
 
 const normalizeTopic = (topic, entityName = '') => {
   if (!topic || typeof topic !== 'string' || !topic.trim() || topic.trim().toLowerCase() === 'unknown') {
@@ -133,20 +133,22 @@ const Dashboard = () => {
       if (!selectedEntity) return;
       try {
         const [docsRes, sourcesRes, procRes, attentionRes] = await Promise.all([
-          axios.get(`/api/documents?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
-          axios.get(`/api/sources?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
-          axios.get(`/api/processing/status?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
-          axios.get(`/api/admin/dashboard/attention-narratives?entity_id=${selectedEntity.entityId}`, { withCredentials: true }).catch(() => ({ data: { negative: [], positive: [] } }))
+          api.get(`/documents?entity_id=${selectedEntity.entityId}`),
+          api.get(`/sources?entity_id=${selectedEntity.entityId}`),
+          api.get(`/processing/status?entity_id=${selectedEntity.entityId}`),
+          api.get(`/admin/dashboard/attention-narratives?entity_id=${selectedEntity.entityId}`).catch(() => ({ data: { negative: [], positive: [] } }))
         ]);
-        
+
+        const docsList = toArray(docsRes.data, 'documents');
+        const sourcesList = toArray(sourcesRes.data, 'sources');
         setStats({
-          documents: docsRes.data.total || docsRes.data.length || 0,
-          sources: sourcesRes.data.length || 0,
+          documents: docsRes.data?.total ?? docsList.length ?? 0,
+          sources: sourcesList.length,
           processing: procRes.data
         });
         setAttentionData({
-          negative: attentionRes.data?.negative || [],
-          positive: attentionRes.data?.positive || []
+          negative: toArray(attentionRes.data?.negative),
+          positive: toArray(attentionRes.data?.positive)
         });
         setLoading(false);
       } catch (err) {

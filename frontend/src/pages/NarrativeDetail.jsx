@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import { ArrowLeft, Network, Activity, FileText, Lightbulb } from 'lucide-react';
 import TrendGraph from '../components/TrendGraph';
 
@@ -13,8 +13,8 @@ const NarrativeDetail = () => {
   useEffect(() => {
     const fetchNarrative = async () => {
       try {
-        const { data } = await axios.get(`/api/narratives/${id}`, { withCredentials: true });
-        setNarrative(data);
+        const { data } = await api.get(`/narratives/${id}`);
+        setNarrative(data && typeof data === 'object' ? data : null);
         setLoading(false);
       } catch (err) {
         setError('Failed to fetch narrative');

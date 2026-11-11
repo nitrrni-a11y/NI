@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileText, Loader2, CheckCircle2, 
@@ -157,10 +157,9 @@ const AddData = () => {
     setManualError('');
 
     try {
-      await axios.post(
-        '/api/documents', 
-        { ...manualFormData, entity_id: selectedEntity?.entityId },
-        { withCredentials: true }
+      await api.post(
+        '/documents',
+        { ...manualFormData, entity_id: selectedEntity?.entityId }
       );
       navigate(`/entity/${selectedEntity?.entityId}/data`);
     } catch (err) {
@@ -197,15 +196,14 @@ const AddData = () => {
     setIngestionSummary(null);
 
     try {
-      const response = await axios.post(
-        '/api/documents/youtube/extract',
-        { 
+      const response = await api.post(
+        '/documents/youtube/extract',
+        {
           url: trimmedUrl,
           extractTranscript,
           extractComments,
           maxComments: Number(maxComments) || 50
-        },
-        { withCredentials: true }
+        }
       );
 
       const data = response.data;
@@ -264,13 +262,12 @@ const AddData = () => {
     setTranslatingYt(true);
     setYtTranslationError('');
     try {
-      const res = await axios.post(
-        '/api/documents/youtube/translate',
+      const res = await api.post(
+        '/documents/youtube/translate',
         {
           text: ytFormData.rawText,
           sourceLanguage: ytTranslation.detectedLanguage || extractedData?.transcript?.detected_language || null,
-        },
-        { withCredentials: true }
+        }
       );
 
       if (res.data?.translationStatus === 'translated' && res.data?.translatedText) {
@@ -319,8 +316,8 @@ const AddData = () => {
       const detectedLang = ytTranslation.detectedLanguage || extractedData?.transcript?.detected_language || 'en';
       const isPreTranslated = ytTranslation.translationStatus === 'translated' && Boolean(ytTranslation.translatedText?.trim());
 
-      const response = await axios.post(
-        '/api/documents/youtube/ingest',
+      const response = await api.post(
+        '/documents/youtube/ingest',
         {
           entityId: selectedEntity.entityId,
           videoId: extractedData.video_id,
@@ -343,8 +340,7 @@ const AddData = () => {
             include: Boolean(hasCommentsToSave),
             items: extractedData?.comments?.comments || []
           }
-        },
-        { withCredentials: true }
+        }
       );
 
       setSaveSuccess(true);
@@ -399,7 +395,7 @@ const AddData = () => {
     setLinkedInCommentsPage(1);
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/extract', {
+      const res = await api.post('/scraper/linkedin/extract', {
         url: trimmed,
         numComments: linkedInNumComments
       }, { withCredentials: true });
@@ -424,7 +420,7 @@ const AddData = () => {
     setSaveError('');
 
     try {
-      const res = await axios.post('/api/scraper/linkedin/ingest', {
+      const res = await api.post('/scraper/linkedin/ingest', {
         entityId: selectedEntity.entityId,
         post: linkedInExtractedData.post,
         comments: linkedInExtractedData.comments || []

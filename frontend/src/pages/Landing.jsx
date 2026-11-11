@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api, { toArray } from '../services/api';
 import {
   Network,
   Hash,
@@ -27,8 +27,8 @@ const Landing = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const { data } = await axios.get('/api/sources', { withCredentials: true });
-        setStats((prev) => ({ ...prev, sources: data.length }));
+        const { data } = await api.get('/sources');
+        setStats((prev) => ({ ...prev, sources: toArray(data, 'sources').length }));
       } catch (err) {
         console.error(err);
       }
@@ -39,7 +39,8 @@ const Landing = () => {
   if (user) {
     if (entitiesLoading) return <div>Loading entities...</div>;
 
-    const domainMap = entities.reduce((acc, entity) => {
+    const safeEntities = Array.isArray(entities) ? entities : [];
+    const domainMap = safeEntities.reduce((acc, entity) => {
       if (!acc[entity.domain]) {
         acc[entity.domain] = { count: 0, entities: [] };
       }

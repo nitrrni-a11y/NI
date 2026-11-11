@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { 
   Cpu, Play, CheckCircle, Clock, AlertTriangle, Square, XCircle, 
   RefreshCw, AlertCircle, Layers, Database, BarChart3, ArrowRight, Check
@@ -30,8 +30,8 @@ const Processing = () => {
     try {
       const batchQuery = targetBatchId ? `&batch_id=${encodeURIComponent(targetBatchId)}` : '';
       const [statsRes, jobRes] = await Promise.all([
-        axios.get(`/api/processing/status?entity_id=${selectedEntity.entityId}`, { withCredentials: true }),
-        axios.get(`/api/processing/job-status?entity_id=${selectedEntity.entityId}${batchQuery}`, { withCredentials: true })
+        api.get(`/processing/status?entity_id=${selectedEntity.entityId}`),
+        api.get(`/processing/job-status?entity_id=${selectedEntity.entityId}${batchQuery}`)
       ]);
 
       if (!isMountedRef.current) return;
@@ -147,11 +147,11 @@ const Processing = () => {
     setStopError(null);
     setStopTimeoutWarning(false);
     try {
-      const res = await axios.post('/api/processing/start', { 
+      const res = await api.post('/processing/start', { 
         batchId: selectedBatchId || job?.batchId, 
         limit: processLimit,
         entityId: selectedEntity.entityId
-      }, { withCredentials: true });
+      });
       if (res.data?.job) {
         setJob(res.data.job);
         if (res.data.job.batchId) setSelectedBatchId(res.data.job.batchId);
@@ -185,11 +185,11 @@ const Processing = () => {
     }
 
     try {
-      const res = await axios.post('/api/processing/stop', { 
+      const res = await api.post('/processing/stop', { 
         entityId: selectedEntity.entityId,
         batchId: selectedBatchId || job?.batchId,
         force: Boolean(force)
-      }, { withCredentials: true });
+      });
 
       if (res.data?.job) {
         setJob(res.data.job);
