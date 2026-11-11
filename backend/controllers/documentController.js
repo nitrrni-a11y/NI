@@ -7,7 +7,8 @@ import { computeHash, normalizeUrl } from '../services/articleExtractor.js';
 // @access  Private (User/Admin)
 const getDocuments = async (req, res) => {
   try {
-    const { keyword, source, sourceType, status, pageNumber, limit: reqLimit, entity_id } = req.query;
+    const { keyword, source, sourceType, status, pageNumber, limit: reqLimit, entity_id, entityId, entity } = req.query;
+    const targetEntityId = entity_id || entityId || entity;
     
     // Pagination defaults
     const page = Number(pageNumber) || 1;
@@ -16,8 +17,8 @@ const getDocuments = async (req, res) => {
     
     // Build query
     const query = {};
-    if (entity_id) {
-      query.entityId = entity_id;
+    if (targetEntityId) {
+      query.entityId = targetEntityId;
     }
     
     if (keyword) {

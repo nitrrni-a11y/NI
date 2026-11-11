@@ -1,13 +1,17 @@
 import { useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
-import { useEntity } from '../context/entityContext';
+import { useEntity } from '../context/EntityContext';
 import { Search, User, LogOut } from 'lucide-react';
+
+const adminLoginUrl = import.meta.env.VITE_ADMIN_URL || 'http://localhost:5174/login';
 
 const Navbar = () => {
   const { user, logout } = useContext(AuthContext);
   const { entities, selectedEntity, changeEntity, loading } = useEntity();
   const navigate = useNavigate();
+
+  const safeEntities = Array.isArray(entities) ? entities : [];
 
   const handleLogout = async () => {
     await logout();
@@ -22,7 +26,7 @@ const Navbar = () => {
             <div style={{ width: '24px', height: '24px', backgroundColor: 'var(--accent)', borderRadius: '4px' }}></div>
             Narrative Intelligence
           </Link>
-          
+
           {user && !loading && selectedEntity && (
             <div className="flex gap-4 items-center">
               <Link to="/narratives" className="nav-link" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Narratives</Link>
@@ -41,7 +45,7 @@ const Navbar = () => {
                   outline: 'none'
                 }}
               >
-                {entities.map((a) => (
+                {safeEntities.map((a) => (
                   <option key={a.entityId} value={a.entityId}>
                     {a.name}
                   </option>
@@ -55,7 +59,7 @@ const Navbar = () => {
           {!user ? (
             <>
               <Link to="/login" className="btn btn-ghost">User Login</Link>
-              <a href="http://localhost:5174/login" className="btn btn-primary" target="_blank" rel="noreferrer">
+              <a href={adminLoginUrl} className="btn btn-primary" target="_blank" rel="noreferrer">
                 Admin Login
               </a>
             </>
@@ -66,7 +70,7 @@ const Navbar = () => {
               </Link>
               <div style={{ width: '1px', height: '20px', backgroundColor: 'var(--border)' }}></div>
               <div className="flex items-center gap-2 text-sm text-light">
-                <User size={16} /> {user.name.split(' ')[0]}
+                <User size={16} /> {(user.name || 'User').split(' ')[0]}
               </div>
               <button onClick={handleLogout} className="btn btn-ghost" style={{ padding: '0.5rem' }} title="Logout">
                 <LogOut size={18} />

@@ -177,10 +177,10 @@ const NarrativeDetail = () => {
             <h3 className="m-0 text-lg">Cross-Source Presence</h3>
           </div>
           <div className="text-secondary p-4">
-            <p><strong>Unique Sources:</strong> {narrative.analysis?.source_count || (narrative.supportingEvidence?.sources?.length || 0)}</p>
+            <p><strong>Unique Sources:</strong> {narrative.analysis?.source_count || (Array.isArray(narrative.supportingEvidence?.sources) ? narrative.supportingEvidence.sources.length : 0)}</p>
             <p className="mt-2"><strong>Sources:</strong></p>
             <div className="flex flex-wrap gap-2 mt-1">
-              {(narrative.supportingEvidence?.sources || []).map((src, i) => (
+              {(Array.isArray(narrative.supportingEvidence?.sources) ? narrative.supportingEvidence.sources : []).map((src, i) => (
                 <span key={i} className="badge badge-outline">{src}</span>
               ))}
             </div>
@@ -194,7 +194,7 @@ const NarrativeDetail = () => {
           </div>
           <div className="text-secondary p-2 flex-1">
             <p className="mb-3"><strong className="text-primary">Total Supporting Claims:</strong> <span className="text-lg">{narrative.analysis?.claim_count || 0}</span></p>
-            <p><strong className="text-primary">Related Documents:</strong> <span className="text-lg">{(narrative.supportingEvidence?.document_ids || []).length}</span></p>
+            <p><strong className="text-primary">Related Documents:</strong> <span className="text-lg">{Array.isArray(narrative.supportingEvidence?.document_ids) ? narrative.supportingEvidence.document_ids.length : 0}</span></p>
           </div>
         </div>
       </div>

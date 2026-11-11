@@ -5,10 +5,10 @@ import Topic from '../models/Topic.js';
 // @access  Private
 export const getTopics = async (req, res) => {
   try {
-    const { entity_id } = req.query;
+    const targetEntityId = req.query.entity_id || req.query.entityId || req.query.entity;
     const query = {};
-    if (entity_id) {
-      query.entityId = entity_id;
+    if (targetEntityId) {
+      query.entityId = targetEntityId;
     }
     const topics = await Topic.find(query).sort({ name: 1 });
     res.json(topics);

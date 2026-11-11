@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getEntities,
   getEntityById,
+  getEntityStats,
   createEntity,
   updateEntity,
   deleteEntity
@@ -13,6 +14,8 @@ const router = express.Router();
 router.route('/')
   .get(protect, getEntities)
   .post(protect, admin, createEntity);
+
+router.get('/:id/stats', protect, getEntityStats);
 
 router.route('/:id')
   .get(protect, getEntityById)

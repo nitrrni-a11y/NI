@@ -3,6 +3,7 @@ import {
   getSources,
   getNarratives,
   getNarrativeById,
+  getDashboardHighlights,
   getProcessingStatus,
   getJobStatus,
   startProcessingJob,
@@ -12,8 +13,9 @@ import { protect, optionalProtect, admin } from '../middleware/authMiddleware.js
 
 const router = express.Router();
 
-// Public / consumer routes (optionalProtect allows admins full visibility while scoping public/non-admins to published)
+// Public / consumer routes (optionalProtect allows admins full visibility while scoping public/non-admins)
 router.get('/sources', protect, getSources);
+router.get('/narratives/highlights', optionalProtect, getDashboardHighlights);
 router.get('/narratives', optionalProtect, getNarratives);
 router.get('/narratives/:id', optionalProtect, getNarrativeById);
 

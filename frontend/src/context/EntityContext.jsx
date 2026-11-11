@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import api, { toArray } from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -33,11 +33,11 @@ export const EntityProvider = ({ children }) => {
         const matched = savedEntityId ? entityList.find(e => e.entityId === savedEntityId) : null;
         if (matched) {
           setSelectedEntity(matched);
-        } else if (entityList.length > 0) {
-          setSelectedEntity(entityList[0]);
-          localStorage.setItem('selectedEntityId', entityList[0].entityId);
         } else {
           setSelectedEntity(null);
+          if (savedEntityId) {
+            localStorage.removeItem('selectedEntityId');
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -57,7 +57,7 @@ export const EntityProvider = ({ children }) => {
     };
   }, [user, authLoading]);
 
-  const changeEntity = (entityId, reload = false) => {
+  const changeEntity = useCallback((entityId, reload = false) => {
     const safeEntities = Array.isArray(entities) ? entities : [];
     const entity = safeEntities.find(e => e.entityId === entityId);
     if (entity) {
@@ -67,10 +67,15 @@ export const EntityProvider = ({ children }) => {
         window.location.reload();
       }
     }
+  }, [entities]);
+
+  const clearEntity = () => {
+    setSelectedEntity(null);
+    localStorage.removeItem('selectedEntityId');
   };
 
   return (
-    <EntityContext.Provider value={{ entities, selectedEntity, changeEntity, loading }}>
+    <EntityContext.Provider value={{ entities, selectedEntity, changeEntity, clearEntity, loading }}>
       {children}
     </EntityContext.Provider>
   );

@@ -19,7 +19,7 @@ const getInitialTheme = () => {
 
 const MainLayout = () => {
   const { user, logout } = useAuth();
-  const { entities, selectedEntity, changeEntity, loading } = useEntity();
+  const { selectedEntity, loading } = useEntity();
   const location = useLocation();
   const [theme, setTheme] = useState(getInitialTheme);
 
@@ -66,7 +66,10 @@ const MainLayout = () => {
                 <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                   {selectedEntity.domain} / <span style={{ color: 'var(--text-color)', fontWeight: 600 }}>{selectedEntity.name}</span>
                 </span>
-                <Link to="/" style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--primary-color)', textDecoration: 'underline' }}>
+                <Link
+                  to={selectedEntity.domain ? `/?domain=${encodeURIComponent(selectedEntity.domain)}` : '/'}
+                  style={{ fontSize: '0.75rem', marginLeft: '0.5rem', color: 'var(--primary-color)', textDecoration: 'underline' }}
+                >
                   [Change Entity]
                 </Link>
               </div>

@@ -31,9 +31,10 @@ const Search = () => {
     setHasSearched(true);
     
     const searchLower = query.toLowerCase();
-    const filtered = allNarratives.filter(n => {
-      const topicMatch = n.topic ? n.topic.toLowerCase().includes(searchLower) : false;
-      const descMatch = n.description ? n.description.toLowerCase().includes(searchLower) : false;
+    const safeNarratives = Array.isArray(allNarratives) ? allNarratives : [];
+    const filtered = safeNarratives.filter(n => {
+      const topicMatch = n?.topic ? n.topic.toLowerCase().includes(searchLower) : false;
+      const descMatch = n?.description ? n.description.toLowerCase().includes(searchLower) : false;
       return topicMatch || descMatch;
     });
     

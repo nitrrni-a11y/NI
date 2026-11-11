@@ -90,8 +90,8 @@ const reconcileInterruptedJobs = async () => {
 // @access  Private
 const getSources = async (req, res) => {
   try {
-    const { entity_id } = req.query;
-    const matchStage = entity_id ? { $match: { entityId: entity_id } } : { $match: {} };
+    const targetEntityId = req.query.entity_id || req.query.entityId || req.query.entity;
+    const matchStage = targetEntityId ? { $match: { entityId: targetEntityId } } : { $match: {} };
 
     // Aggregate distinct sources and count them
     const sources = await Document.aggregate([
@@ -226,37 +226,132 @@ const populateNarrativeTimeline = async (narrative) => {
   return narObj;
 };
 
+// Shared highlight selection & ranking (used by both consumer highlights & admin dashboard)
+const getAttentionHighlightsForEntity = async (entityId, { excludeModerated = true } = {}) => {
+  const baseQuery = {
+    entityId,
+    $or: [
+      { isEligibleForDisplay: { $ne: false } },
+      { isSecurityRisk: true },
+      { severityLevel: 'critical' },
+      { priority: 'critical' },
+    ],
+  };
+
+  if (excludeModerated) {
+    baseQuery.publicationStatus = { $nin: ['Held', 'Rejected'] };
+  }
+
+  // 1. Negative narratives requiring attention:
+  const negativeCandidates = await Narrative.find({
+    ...baseQuery,
+    direction: 'negative',
+    priority: { $in: ['critical', 'high', 'medium'] },
+  }).sort({ lastObservedAt: -1 }).limit(30);
+
+  const scoredNegative = negativeCandidates.map((nar) => {
+    let score = 0;
+    if (nar.priority === 'critical' || nar.isSecurityRisk) score += 1000;
+    else if (nar.priority === 'high') score += 500;
+    else if (nar.priority === 'medium') {
+      const claims = nar.analysis?.claim_count || nar.supportingEvidence?.claim_ids?.length || 0;
+      const sources = nar.analysis?.source_count || nar.supportingEvidence?.sources?.length || 0;
+      const isRising = (nar.trend || nar.analysis?.trend) === 'Rising';
+      if (claims < 3 && sources < 2 && !isRising) {
+        return null;
+      }
+      score += 100 + claims * 10 + (isRising ? 50 : 0);
+    }
+    return { narrative: nar, score };
+  }).filter(Boolean);
+
+  scoredNegative.sort((a, b) => b.score - a.score);
+  const negative = scoredNegative.slice(0, 5).map((item) => item.narrative);
+
+  // 2. Positive Institutional Highlights:
+  const positiveCandidates = await Narrative.find({
+    ...baseQuery,
+    direction: 'positive',
+    positiveSignificance: { $in: ['significant', 'notable', 'general'] },
+  }).sort({ lastObservedAt: -1 }).limit(20);
+
+  const scoredPositive = positiveCandidates.map((nar) => {
+    let score = 0;
+    if (nar.positiveSignificance === 'significant') score += 500;
+    else if (nar.positiveSignificance === 'notable') score += 200;
+    else score += 50;
+    const strength = nar.analysis?.strength || 0;
+    score += strength * 100;
+    return { narrative: nar, score };
+  });
+
+  scoredPositive.sort((a, b) => b.score - a.score);
+  const positive = scoredPositive.slice(0, 3).map((item) => item.narrative);
+
+  return { negative, positive };
+};
+
+// @desc    Get dashboard attention/highlight narratives for consumer or admin
+// @route   GET /api/narratives/highlights
+// @access  Public / Consumer / Admin
+const getDashboardHighlights = async (req, res) => {
+  try {
+    const targetEntityId = req.query.entity_id || req.query.entityId || req.query.entity;
+    if (!targetEntityId) {
+      return res.status(400).json({ message: 'entity_id is required' });
+    }
+    const isAdmin = req.user?.role === 'admin';
+    const { negative, positive } = await getAttentionHighlightsForEntity(targetEntityId, {
+      excludeModerated: !isAdmin,
+    });
+    res.json({
+      entityId: targetEntityId,
+      negative,
+      positive,
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard highlights:', error);
+    res.status(500).json({ message: 'Could not fetch dashboard highlight narratives.' });
+  }
+};
+
 // @desc    Get narratives
 // @route   GET /api/narratives
-// @access  Private
+// @access  Private / Consumer (optionalProtect)
 const getNarratives = async (req, res) => {
   try {
-    const { 
-      entity_id, 
-      domain, 
-      category, 
-      search, 
-      is_published, 
-      status, 
+    const {
+      entity_id,
+      entityId,
+      entity,
+      domain,
+      category,
+      search,
+      is_published,
+      status,
       include_candidates,
       direction,
       priority,
-      positive_significance
+      positive_significance,
+      limit: reqLimit,
     } = req.query;
+    const targetEntityId = entity_id || entityId || entity;
     const isAdmin = req.user?.role === 'admin';
     const query = {};
-    if (!isAdmin || is_published === 'true') {
+    if (is_published === 'true') {
       query.isPublished = true;
+    } else if (!isAdmin) {
+      query.publicationStatus = { $nin: ['Held', 'Rejected'] };
     }
-    if (entity_id) {
-      query.entityId = entity_id;
+    if (targetEntityId) {
+      query.entityId = targetEntityId;
     }
     if (category) query.topic = category;
     if (domain) {
       const escapedDomain = String(domain).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const matchingEntities = await Entity.find({ domain: new RegExp(`^${escapedDomain}$`, 'i') }).distinct('entityId');
       query.entityId = { $in: matchingEntities };
-      if (entity_id) query.entityId = { $in: matchingEntities.includes(entity_id) ? [entity_id] : [] };
+      if (targetEntityId) query.entityId = { $in: matchingEntities.includes(targetEntityId) ? [targetEntityId] : [] };
     }
     if (search && String(search).trim()) {
       const safeSearch = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -285,9 +380,10 @@ const getNarratives = async (req, res) => {
       query.isEligibleForDisplay = { $ne: false };
     }
 
+    const parsedLimit = Math.min(500, Math.max(1, Number(reqLimit) || 250));
     const narratives = await Narrative.find(query)
       .sort({ 'analysis.strength': -1, lastObservedAt: -1 })
-      .limit(100);
+      .limit(parsedLimit);
     res.json(narratives);
   } catch (error) {
     console.error('Narratives error:', error);
@@ -299,7 +395,7 @@ const getNarratives = async (req, res) => {
 
 // @desc    Get single narrative
 // @route   GET /api/narratives/:id
-// @access  Private
+// @access  Private / Consumer (optionalProtect)
 const getNarrativeById = async (req, res) => {
   try {
     const narrative = await Narrative.findById(req.params.id);
@@ -307,7 +403,7 @@ const getNarrativeById = async (req, res) => {
       return res.status(404).json({ message: 'Narrative not found' });
     }
     const isAdmin = req.user?.role === 'admin';
-    if (!isAdmin && !narrative.isPublished) {
+    if (!isAdmin && (['Held', 'Rejected'].includes(narrative.publicationStatus) || narrative.isEligibleForDisplay === false)) {
       return res.status(404).json({ message: 'Narrative not found' });
     }
     const populated = await populateNarrativeTimeline(narrative);
@@ -1658,6 +1754,8 @@ export {
   getSources,
   getNarratives,
   getNarrativeById,
+  getDashboardHighlights,
+  getAttentionHighlightsForEntity,
   getProcessingStatus,
   getJobStatus,
   startProcessingJob,

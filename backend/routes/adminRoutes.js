@@ -2,7 +2,7 @@ import express from 'express';
 import { protect, admin } from '../middleware/authMiddleware.js';
 import User from '../models/User.js';
 import Narrative from '../models/Narrative.js';
-import { reclassifyAllNarratives } from '../controllers/aiDataController.js';
+import { reclassifyAllNarratives, getAttentionHighlightsForEntity } from '../controllers/aiDataController.js';
 
 const router = express.Router();
 
@@ -42,74 +42,12 @@ router.get('/dashboard/attention-narratives', protect, admin, async (req, res) =
       return res.status(400).json({ message: 'entity_id is required' });
     }
 
-    // Only Established narratives (or critical safety items) for the specific entity
-    const baseQuery = { 
-      entityId: entity_id,
-      $or: [
-        { isEligibleForDisplay: { $ne: false } },
-        { isSecurityRisk: true },
-        { severityLevel: 'critical' },
-        { priority: 'critical' }
-      ]
-    };
-
-    // 1. Negative narratives requiring attention:
-    // Selection Rule:
-    // - Priority 'critical' first
-    // - Priority 'high' second
-    // - Priority 'medium' third ONLY if there is meaningful recurrence (claimCount >= 3 or sourceCount >= 2) or trend === 'Rising'
-    const negativeCandidates = await Narrative.find({
-      ...baseQuery,
-      direction: 'negative',
-      priority: { $in: ['critical', 'high', 'medium'] }
-    }).sort({ lastObservedAt: -1 }).limit(30);
-
-    const scoredNegative = negativeCandidates.map(nar => {
-      let score = 0;
-      if (nar.priority === 'critical' || nar.isSecurityRisk) score += 1000;
-      else if (nar.priority === 'high') score += 500;
-      else if (nar.priority === 'medium') {
-        const claims = nar.analysis?.claim_count || nar.supportingEvidence?.claim_ids?.length || 0;
-        const sources = nar.analysis?.source_count || nar.supportingEvidence?.sources?.length || 0;
-        const isRising = (nar.trend || nar.analysis?.trend) === 'Rising';
-        if (claims < 3 && sources < 2 && !isRising) {
-          return null;
-        }
-        score += 100 + (claims * 10) + (isRising ? 50 : 0);
-      }
-      return { narrative: nar, score };
-    }).filter(Boolean);
-
-    scoredNegative.sort((a, b) => b.score - a.score);
-    const negativeAttention = scoredNegative.slice(0, 5).map(item => item.narrative);
-
-    // 2. Positive Institutional Highlights:
-    // Selection Rule:
-    // - Positive direction only
-    // - 'significant' first, then 'notable'
-    const positiveCandidates = await Narrative.find({
-      ...baseQuery,
-      direction: 'positive',
-      positiveSignificance: { $in: ['significant', 'notable', 'general'] }
-    }).sort({ lastObservedAt: -1 }).limit(20);
-
-    const scoredPositive = positiveCandidates.map(nar => {
-      let score = 0;
-      if (nar.positiveSignificance === 'significant') score += 500;
-      else if (nar.positiveSignificance === 'notable') score += 200;
-      else score += 50;
-      const strength = nar.analysis?.strength || 0;
-      score += strength * 100;
-      return { narrative: nar, score };
-    });
-
-    scoredPositive.sort((a, b) => b.score - a.score);
-    const positiveHighlights = scoredPositive.slice(0, 3).map(item => item.narrative);
+    const { negative, positive } = await getAttentionHighlightsForEntity(entity_id, { excludeModerated: false });
 
     res.json({
       entityId: entity_id,
-      negative: negativeAttention,
-      positive: positiveHighlights
+      negative,
+      positive
     });
   } catch (error) {
     console.error('Error fetching dashboard attention narratives:', error);

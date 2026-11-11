@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import api, { toArray } from '../services/api';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import { fetchEntityNarratives } from '../services/api';
 import {
   Network,
   Hash,
@@ -10,109 +10,64 @@ import {
   ArrowRight,
   Bot,
   BarChart3,
-  Folder,
-  Building2
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useEntity } from '../context/EntityContext';
+import Overview from './Overview';
+import HighlightCard, { selectHighlightNarratives } from '../components/HighlightCard';
 
-const adminLoginUrl = 'http://localhost:5174/login';
+const adminLoginUrl = import.meta.env?.VITE_ADMIN_URL || 'http://localhost:5174/login';
 
 const Landing = () => {
-  const { user } = useAuth();
-  const { entities, loading: entitiesLoading, changeEntity } = useEntity();
-  const navigate = useNavigate();
-  const [stats, setStats] = useState({ sources: 0, topics: 0 });
+  const { user, loading: authLoading } = useAuth();
+  const [publicNarratives, setPublicNarratives] = useState([]);
+  const [highlightsLoading, setHighlightsLoading] = useState(false);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const { data } = await api.get('/sources');
-        setStats((prev) => ({ ...prev, sources: toArray(data, 'sources').length }));
-      } catch (err) {
-        console.error(err);
-      }
+    if (authLoading || user) return;
+    let cancelled = false;
+    setHighlightsLoading(true);
+    fetchEntityNarratives(null)
+      .then((list) => {
+        if (!cancelled) setPublicNarratives(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPublicNarratives([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHighlightsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
     };
-    fetchStats();
-  }, []);
+  }, [user, authLoading]);
 
-  if (user) {
-    if (entitiesLoading) return <div>Loading entities...</div>;
+  const topHighlights = useMemo(
+    () => selectHighlightNarratives(publicNarratives, 4),
+    [publicNarratives]
+  );
 
-    const safeEntities = Array.isArray(entities) ? entities : [];
-    const domainMap = safeEntities.reduce((acc, entity) => {
-      if (!acc[entity.domain]) {
-        acc[entity.domain] = { count: 0, entities: [] };
-      }
-      acc[entity.domain].count += 1;
-      acc[entity.domain].entities.push(entity);
-      return acc;
-    }, {});
-
-    const domainList = Object.keys(domainMap).sort();
-
+  if (authLoading) {
     return (
-      <div className="p-6 max-w-6xl mx-auto">
-        <div className="flex flex-col mb-12">
-          <h1 style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Select Intelligence Domain</h1>
-          <p className="text-secondary mb-6" style={{ fontSize: '1.1rem' }}>Choose an entity to view its intelligence dashboard.</p>
-        </div>
-
-        {domainList.map(domain => (
-          <div key={domain} className="mb-12">
-            <h2 className="flex items-center gap-2 mb-6 text-primary-color border-b border-gray-800 pb-2">
-              <Folder size={20} />
-              {domain}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {domainMap[domain].entities.map(entity => (
-                <div 
-                  key={entity.entityId} 
-                  className="card hover:border-primary-color transition-colors cursor-pointer flex flex-col"
-                  onClick={() => {
-                    changeEntity(entity.entityId);
-                    navigate('/narratives');
-                  }}
-                  style={{ padding: '1.5rem', border: '1px solid var(--border-color)', borderRadius: '12px' }}
-                >
-                  <div className="flex items-center gap-4 mb-5">
-                    <div className="p-3 bg-secondary rounded-lg" style={{ backgroundColor: 'var(--bg-color)' }}>
-                      <Building2 size={24} className="text-primary-color" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="truncate m-0" style={{ color: 'var(--text-color)', fontSize: '1.25rem', fontWeight: 600 }}>{entity.name}</h3>
-                        <div className="badge shrink-0" style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', borderRadius: '12px', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>{entity.entityType}</div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-auto pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-                    <div className="flex items-center justify-between text-primary-color text-sm font-medium">
-                      <span>Open Intelligence Dashboard</span>
-                      <ArrowRight size={18} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-        {domainList.length === 0 && (
-          <div className="text-center p-12 card text-secondary">
-            No active intelligence domains found.
-          </div>
-        )}
+      <div className="p-8 flex items-center gap-2 text-secondary">
+        <Loader2 size={18} className="animate-spin" />
+        <span>Initializing workspace...</span>
       </div>
     );
   }
 
+  // Logged-in consumer sees strictly the 3-step drill-down Overview (Domains -> Entities -> Entity Dashboard)
+  if (user) {
+    return <Overview />;
+  }
+
+  // Public Hero Landing View (Unauthenticated)
   return (
     <div className="landing-shell">
       <section className="hero-panel">
         <div className="hero-copy">
           <span className="hero-badge">
-            
             AI Narrative Intelligence
           </span>
 
@@ -133,12 +88,12 @@ const Landing = () => {
 
           <div className="metric-strip">
             <div className="mini-metric">
-              <strong>{stats.sources || 24}</strong>
+              <strong>24+</strong>
               <span>Sources</span>
             </div>
             <div className="mini-metric">
-              <strong>{stats.topics || 18}</strong>
-              <span>Topics</span>
+              <strong>{publicNarratives.length || 18}</strong>
+              <span>Narratives</span>
             </div>
             <div className="mini-metric">
               <strong>99.2%</strong>
@@ -212,6 +167,37 @@ const Landing = () => {
         </div>
       </section>
 
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold flex items-center gap-2 m-0">
+            <Sparkles size={18} style={{ color: 'var(--accent-blue)' }} />
+            <span>Top Narrative Highlights</span>
+          </h2>
+          <Link to="/login" className="text-xs font-semibold" style={{ color: 'var(--accent-blue)' }}>
+            Sign in for full workspace access &rarr;
+          </Link>
+        </div>
+
+        {highlightsLoading ? (
+          <div className="card p-6 text-center text-secondary text-sm">
+            Loading highlights...
+          </div>
+        ) : topHighlights.length === 0 ? (
+          <div className="card p-6 text-center text-secondary text-sm">
+            Sign in to explore intelligence domains, entity dashboards, and narrative highlights.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {topHighlights.map((nar) => (
+              <HighlightCard
+                key={nar._id || nar.narrativeId}
+                narrative={nar}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="insight-grid">
         <div className="card insight-card">
           <div className="flex items-center justify-between mb-2">
@@ -230,11 +216,7 @@ const Landing = () => {
             <Hash size={20} className="text-muted" />
           </div>
           <h2>
-            {stats.sources === 0 ? (
-              <span className="text-secondary text-lg">No sources available</span>
-            ) : (
-              stats.sources
-            )}
+            <span className="text-secondary text-lg">Sign in to view sources</span>
           </h2>
         </div>
       </section>
