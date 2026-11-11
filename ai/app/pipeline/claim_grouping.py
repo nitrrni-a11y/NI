@@ -1,7 +1,6 @@
 import uuid
 import numpy as np
 from typing import List
-from sklearn.cluster import AgglomerativeClustering
 
 from app.pipeline.schemas import EnrichedClaim, ClaimGroup
 
@@ -22,6 +21,7 @@ def group_claims(claims: List[EnrichedClaim], distance_threshold: float = 0.65) 
     if not valid_claims:
         return []
 
+    from sklearn.cluster import AgglomerativeClustering
     embeddings = np.array([c.embedding for c in valid_claims])
 
     clustering = AgglomerativeClustering(

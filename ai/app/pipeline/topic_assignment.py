@@ -5,11 +5,10 @@ import json
 import string
 from typing import List, Tuple, Optional
 from pydantic import BaseModel, Field
-from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 
 from app.pipeline.schemas import ExistingTopic, EntityContext
-from app.pipeline.claim_enrichment import get_model
+from app.pipeline.embedding_utils import get_embedding_model, compute_cosine_similarity
 from app.pipeline.groq_utils import get_groq_client, groq_chat_completion_with_retry
 
 load_dotenv(override=True)
@@ -207,7 +206,7 @@ Respond ONLY with a JSON object matching this schema:
         proposed_name = "General"
 
     # Semantic matching and duplicate prevention across working topics
-    sem_model = get_model()
+    sem_model = get_embedding_model()
     candidate_emb = sem_model.encode(proposed_name).reshape(1, -1)
     
     best_id = None
@@ -222,7 +221,7 @@ Respond ONLY with a JSON object matching this schema:
             return orig_t.topic_id, c_name, False
             
         en_emb = sem_model.encode(c_name).reshape(1, -1)
-        score = cosine_similarity(candidate_emb, en_emb)[0][0]
+        score = compute_cosine_similarity(candidate_emb, en_emb)
         if score > best_score and score >= threshold:
             best_score = score
             best_id = orig_t.topic_id

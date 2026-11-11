@@ -1,10 +1,9 @@
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     ffmpeg \
-    git \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 user
@@ -19,17 +18,15 @@ WORKDIR /home/user/app
 
 COPY --chown=user requirements.txt .
 
-RUN pip install --no-cache-dir torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+COPY --chown=user . .
+
+RUN python -c "from app.pipeline.embedding_utils import get_embedding_model; get_embedding_model()"
 
 ENV HF_HUB_OFFLINE=1 \
     PYTHONUNBUFFERED=1
 
-COPY --chown=user . .
+EXPOSE 8000
 
-EXPOSE 7860
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
-
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

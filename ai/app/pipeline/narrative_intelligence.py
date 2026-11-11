@@ -7,7 +7,6 @@ from typing import List, Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 from google import genai
 from pydantic import BaseModel, Field
-from sklearn.metrics.pairwise import cosine_similarity
 
 from app.pipeline.schemas import (
     ClaimGroup,
@@ -18,7 +17,7 @@ from app.pipeline.schemas import (
     EnrichedClaim,
     EntityContext
 )
-from app.pipeline.claim_enrichment import get_model
+from app.pipeline.embedding_utils import get_embedding_model, compute_cosine_similarity
 from app.pipeline.gemini_utils import generate_with_retry, get_gemini_client
 from app.pipeline.cancellation import cancellation_manager
 from app.pipeline.narrative_analysis import analyze_narrative_trend, evaluate_display_eligibility, classify_narrative_context
@@ -105,7 +104,7 @@ def resolve_identity(candidate_text: str, existing_narratives: List[ExistingNarr
     if not existing_narratives or not candidate_text.strip():
         return None
 
-    model = get_model()
+    model = get_embedding_model()
     candidate_emb = model.encode(candidate_text).reshape(1, -1)
 
     best_id = None
@@ -116,7 +115,7 @@ def resolve_identity(candidate_text: str, existing_narratives: List[ExistingNarr
             continue
 
         en_emb = model.encode(en.text).reshape(1, -1)
-        score = cosine_similarity(candidate_emb, en_emb)[0][0]
+        score = compute_cosine_similarity(candidate_emb, en_emb)
 
         if score > best_score and score >= threshold:
             best_score = score
