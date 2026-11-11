@@ -11,6 +11,7 @@ import {
   discoverYouTubeReviews,
   ingestDiscoveredYouTube
 } from '../controllers/scraperController.js';
+import { translateYouTubeText } from '../controllers/documentController.js';
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.post('/linkedin/discover', protect, admin, discoverLinkedInOpinions);
 router.post('/linkedin/discover/ingest', protect, admin, ingestDiscoveredLinkedIn);
 
 // Feature 3: YouTube Review Discovery routes
+router.post('/youtube/translate', protect, admin, translateYouTubeText);
 router.post('/youtube/generate-queries', protect, admin, generateYouTubeQueries);
 router.post('/youtube/discover', protect, admin, discoverYouTubeReviews);
 router.post('/youtube/discover/ingest', protect, admin, ingestDiscoveredYouTube);

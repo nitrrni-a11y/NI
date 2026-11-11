@@ -2,10 +2,21 @@ import axios from 'axios';
 import FormData from 'form-data';
 
 const getAiServiceUrl = () => {
-  let url = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
-  // Normalize localhost to 127.0.0.1 to avoid Node 18+ IPv6 (::1) ECONNREFUSED resolution mismatches
-  url = url.replace('http://localhost:', 'http://127.0.0.1:').replace('https://localhost:', 'https://127.0.0.1:');
-  return url.replace(/\/+$/, '');
+  const raw = (process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000').trim();
+  try {
+    const parsed = new URL(raw);
+    if (parsed.hostname === 'localhost') {
+      parsed.hostname = '127.0.0.1';
+    }
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return raw.replace(/\/+$/, '');
+  }
+};
+
+const getAiAuthHeaders = () => {
+  const token = process.env.AI_SERVICE_TOKEN?.trim();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 const aiService = {
@@ -15,7 +26,10 @@ const aiService = {
   checkHealth: async () => {
     const url = getAiServiceUrl();
     try {
-      const res = await axios.get(`${url}/health`, { timeout: 3500 });
+      const res = await axios.get(`${url}/health`, {
+        headers: getAiAuthHeaders(),
+        timeout: 3500
+      });
       return {
         healthy: res.status === 200 && (res.data?.status === 'ok' || res.data?.status === 'healthy'),
         url,
@@ -35,6 +49,7 @@ const aiService = {
   processBatch: async (documents, existingNarratives, entityContext, existingTopics, options = {}) => {
     try {
       const axiosConfig = {
+        headers: getAiAuthHeaders(),
         timeout: 300000 // 5 minutes timeout for heavy AI processing
       };
       if (options.signal) {
@@ -78,7 +93,10 @@ const aiService = {
       const response = await axios.post(
         `${getAiServiceUrl()}/process/cancel`,
         { run_id: runId },
-        { timeout: 10000 }
+        {
+          headers: getAiAuthHeaders(),
+          timeout: 10000
+        }
       );
       return response.data;
     } catch (error) {
@@ -101,6 +119,7 @@ const aiService = {
         {
           headers: {
             ...form.getHeaders(),
+            ...getAiAuthHeaders(),
           },
           timeout: 60000,
         }
@@ -136,7 +155,10 @@ const aiService = {
           extract_comments: options.extractComments ?? false,
           max_comments: options.maxComments ?? 50
         },
-        { timeout: 90000 }
+        {
+          headers: getAiAuthHeaders(),
+          timeout: 90000
+        }
       );
       return response.data;
     } catch (error) {
@@ -158,7 +180,7 @@ const aiService = {
   },
 
   /**
-   * Classify discovered LinkedIn posts for direct opinions using the Allam-2-7B SLM via AI service.
+   * Classify discovered LinkedIn posts for direct opinions using the Llama-3.1-8B SLM via AI service.
    */
   classifyLinkedInOpinions: async (organisationName, aliases = [], posts = []) => {
     try {
@@ -169,7 +191,10 @@ const aiService = {
           aliases,
           posts: posts.map(p => ({ id: p.id, text: p.rawText || p.text || '' }))
         },
-        { timeout: 120000 }
+        {
+          headers: getAiAuthHeaders(),
+          timeout: 240000
+        }
       );
       return response.data;
     } catch (error) {
@@ -180,6 +205,34 @@ const aiService = {
           : JSON.stringify(error.response.data.detail);
       }
       throw new Error(`AI Service opinion classification error: ${errorMsg}`);
+    }
+  },
+
+  /**
+   * Detect language and translate non-English text into English on demand via AI service.
+   */
+  translateText: async (text, sourceLanguage = null) => {
+    try {
+      const response = await axios.post(
+        `${getAiServiceUrl()}/translate/text`,
+        {
+          text,
+          source_language: sourceLanguage || null,
+        },
+        {
+          headers: getAiAuthHeaders(),
+          timeout: 120000,
+        }
+      );
+      return response.data;
+    } catch (error) {
+      let errorMsg = error.message;
+      if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : JSON.stringify(error.response.data.detail);
+      }
+      throw new Error(errorMsg || 'Failed to translate text');
     }
   },
 };

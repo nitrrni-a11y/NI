@@ -1,5 +1,6 @@
 import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
+import { computeHash, normalizeUrl } from '../services/articleExtractor.js';
 
 // @desc    Get all documents with filtering, search, and pagination
 // @route   GET /api/documents
@@ -159,24 +160,92 @@ const uploadCsv = async (req, res) => {
 
     const batchId = `BATCH_${Date.now()}`;
 
-    // 2. Save parsed documents to database
-    let savedCount = 0;
+    // 2. Prepare candidates and deduplicate against MongoDB and intra-batch duplicates
+    const candidateHashes = [];
+    const candidateUrls = [];
+    const preparedDocs = [];
+
     for (const doc of aiResponse.documents) {
-      const document = new Document({
+      const text = (doc.text || '').trim();
+      if (!text) continue;
+      const contentHash = computeHash(text.slice(0, 500));
+      const canonicalUrl = doc.url ? normalizeUrl(doc.url) : '';
+      candidateHashes.push(contentHash);
+      if (canonicalUrl) candidateUrls.push(canonicalUrl);
+      preparedDocs.push({ doc, text, contentHash, canonicalUrl });
+    }
+
+    const dedupOr = [{ contentHash: { $in: candidateHashes } }];
+    if (candidateUrls.length > 0) {
+      dedupOr.push({ canonicalUrl: { $in: candidateUrls } });
+    }
+
+    const existingDocs = candidateHashes.length > 0
+      ? await Document.find({ entityId: entity_id, $or: dedupOr })
+          .select('contentHash canonicalUrl')
+          .lean()
+      : [];
+
+    const seenHashes = new Set(existingDocs.map(d => d.contentHash).filter(Boolean));
+    const seenUrls = new Set(existingDocs.map(d => d.canonicalUrl).filter(Boolean));
+
+    const docsToInsert = [];
+    let duplicatesSkipped = 0;
+
+    for (const { doc, text, contentHash, canonicalUrl } of preparedDocs) {
+      if (seenHashes.has(contentHash) || (canonicalUrl && seenUrls.has(canonicalUrl))) {
+        duplicatesSkipped++;
+        continue;
+      }
+      seenHashes.add(contentHash);
+      if (canonicalUrl) seenUrls.add(canonicalUrl);
+
+      docsToInsert.push({
         title: '',
-        rawText: doc.text,
-        source: doc.source,
-        sourceType: doc.source_type,
-        author: doc.author,
+        rawText: text,
+        source: doc.source || 'Unknown',
+        sourceType: doc.source_type || 'Unknown',
+        author: doc.author || 'Unknown',
+        url: canonicalUrl || doc.url || '',
+        canonicalUrl: canonicalUrl || '',
+        contentHash,
         publicationDate: parseDate(doc.published_at),
         collectedDate: parseDate(doc.collected_at) || Date.now(),
         processingStatus: 'not_processed',
+        extractionStatus: 'success',
+        metadata: {
+          provenance: 'CSVUpload',
+          filename: req.file.originalname
+        },
         batchId: batchId,
         entityId: entity_id
       });
-      await document.save();
-      savedCount++;
     }
+
+    if (docsToInsert.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: duplicatesSkipped > 0
+          ? `All ${duplicatesSkipped} document(s) in this CSV already exist in the database.`
+          : 'No valid documents found to upload.',
+        totalRows: aiResponse.total_rows,
+        savedCount: 0,
+        duplicatesSkipped
+      });
+    }
+
+    let insertedDocs = [];
+    try {
+      insertedDocs = await Document.insertMany(docsToInsert, { ordered: false });
+    } catch (insertErr) {
+      if (insertErr.insertedDocs && Array.isArray(insertErr.insertedDocs)) {
+        insertedDocs = insertErr.insertedDocs;
+      } else {
+        insertedDocs = await Document.find({ batchId });
+      }
+    }
+
+    const savedCount = insertedDocs.length;
 
     if (savedCount > 0) {
       await ProcessingJob.create({
@@ -193,9 +262,13 @@ const uploadCsv = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Successfully uploaded and parsed ${savedCount} documents from CSV!`,
+      batchId,
+      message: duplicatesSkipped > 0
+        ? `Successfully uploaded ${savedCount} new document(s) from CSV (${duplicatesSkipped} duplicate(s) skipped).`
+        : `Successfully uploaded and parsed ${savedCount} documents from CSV!`,
       totalRows: aiResponse.total_rows,
-      savedCount: savedCount
+      savedCount,
+      duplicatesSkipped
     });
   } catch (error) {
     console.error('CSV upload error:', error);
@@ -389,6 +462,31 @@ const ingestYouTube = async (req, res) => {
   }
 };
 
+// @desc    Translate non-English YouTube transcript text into English on demand
+// @route   POST /api/documents/youtube/translate
+// @access  Private/Admin
+const translateYouTubeText = async (req, res) => {
+  try {
+    const { text, sourceLanguage, source_language } = req.body;
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return res.status(400).json({ message: 'Transcript text is required for translation.' });
+    }
+
+    const aiService = (await import('../services/aiService.js')).default;
+    const result = await aiService.translateText(text, sourceLanguage || source_language || null);
+
+    return res.status(200).json({
+      originalText: result.original_text,
+      translatedText: result.translated_text,
+      detectedLanguage: result.detected_language,
+      translationStatus: result.translation_status,
+    });
+  } catch (error) {
+    console.error('[YouTube-Translate-Error]', error.message);
+    return res.status(400).json({ message: error.message || 'Failed to translate transcript text' });
+  }
+};
+
 export { 
   getDocuments, 
   getDocumentById, 
@@ -397,5 +495,6 @@ export {
   deleteDocument, 
   bulkDeleteDocuments, 
   extractYouTube,
-  ingestYouTube
+  ingestYouTube,
+  translateYouTubeText
 };

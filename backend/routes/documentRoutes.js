@@ -7,7 +7,8 @@ import {
   deleteDocument, 
   bulkDeleteDocuments, 
   extractYouTube,
-  ingestYouTube
+  ingestYouTube,
+  translateYouTubeText
 } from '../controllers/documentController.js';
 import { 
   extractLinkedIn, 
@@ -29,6 +30,7 @@ router.route('/')
 
 router.post('/youtube/extract', protect, admin, extractYouTube);
 router.post('/youtube/ingest', protect, admin, ingestYouTube);
+router.post('/youtube/translate', protect, admin, translateYouTubeText);
 router.post('/youtube/generate-queries', protect, admin, generateYouTubeQueries);
 router.post('/youtube/discover', protect, admin, discoverYouTubeReviews);
 router.post('/youtube/discover/ingest', protect, admin, ingestDiscoveredYouTube);

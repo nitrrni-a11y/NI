@@ -844,7 +844,7 @@ const DataManagement = () => {
               className="text-sm leading-relaxed"
               style={{ color: 'var(--text-secondary)', marginBottom: '1.25rem' }}
             >
-              Discover LinkedIn posts by organisation name and filter direct opinions using Allam-2-7B.
+              Discover LinkedIn posts by organisation name and filter direct opinions using Llama-3.1-8B.
             </p>
           </div>
           <div>

@@ -196,10 +196,29 @@ def extract_youtube_transcript(video_id: str) -> Dict[str, Any]:
     word_count = len(raw_text.split())
     estimated_reading_minutes = max(1, round(word_count / 200))
 
+    lang_code = (getattr(target_transcript, "language_code", None) or "").strip()
+    lang_name = (getattr(target_transcript, "language", None) or "").strip()
+
+    # Fallback/verification via script detection when caption metadata is missing or labeled 'en'
+    if not lang_code or lang_code.lower().startswith("en"):
+        try:
+            from app.pipeline.translation import detect_language, LANGUAGE_NAME_MAP
+            script_lang, conf = detect_language(raw_text)
+            if script_lang not in ("en", "unknown") and conf >= 0.85:
+                lang_code = script_lang
+                lang_name = LANGUAGE_NAME_MAP.get(script_lang, lang_name or script_lang)
+        except Exception:
+            pass
+
+    if not lang_code:
+        lang_code = "en"
+    if not lang_name:
+        lang_name = "English" if lang_code.lower().startswith("en") else lang_code
+
     return {
         "raw_text": raw_text,
-        "detected_language": target_transcript.language_code,
-        "language_name": target_transcript.language,
+        "detected_language": lang_code,
+        "language_name": lang_name,
         "is_generated": target_transcript.is_generated,
         "char_count": char_count,
         "word_count": word_count,

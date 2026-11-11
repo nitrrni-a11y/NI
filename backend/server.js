@@ -13,7 +13,6 @@ import entityRoutes from './routes/entityRoutes.js';
 import topicRoutes from './routes/topicRoutes.js';
 import domainRoutes from './routes/domainRoutes.js';
 import scraperRoutes from './routes/scraperRoutes.js';
-import institutionRoutes from './routes/institutionRoutes.js';
 import { reconcileInterruptedJobs, normalizeExistingNarrativesAndTopics, reconcileJobDocumentCounts } from './controllers/aiDataController.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -30,20 +29,28 @@ connectDB().then(() => {
 });
 
 const app = express();
+app.set('trust proxy', 1);
 
-const allowedOrigins = [
+const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/+$/, '');
+
+const envOrigins = [process.env.ADMIN_URL, process.env.FRONTEND_URL]
+  .filter(Boolean)
+  .flatMap((val) => String(val).split(','))
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
+const allowedOrigins = Array.from(new Set([
   'http://localhost:5174',
   'http://localhost:5173',
   'http://127.0.0.1:5174',
   'http://127.0.0.1:5173',
-  process.env.ADMIN_URL,
-  process.env.FRONTEND_URL,
-].filter(Boolean);
+  ...envOrigins,
+]));
 
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps, curl, server-to-server, or same-origin proxy)
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(normalizeOrigin(origin))) {
       return callback(null, true);
     }
     return callback(new Error(`Origin ${origin} not allowed by CORS`));
@@ -70,7 +77,6 @@ app.use('/api/entities', entityRoutes);
 app.use('/api/domains', domainRoutes);
 app.use('/api/topics', topicRoutes);
 app.use('/api/scraper', scraperRoutes);
-app.use('/api/institutions', institutionRoutes);
 app.use('/api', aiDataRoutes); // Exposes /api/sources, /api/topics, etc.
 
 app.get('/', (req, res) => {

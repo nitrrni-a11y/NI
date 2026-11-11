@@ -88,7 +88,7 @@ const SourceDiscoveryTabs = ({ activeTab = 'youtube' }) => {
         <LinkedinIcon size={18} color={activeTab === 'linkedin' ? '#0a66c2' : 'currentColor'} />
         <div style={{ textAlign: 'left', lineHeight: 1.2 }}>
           <div style={{ fontSize: '0.9rem' }}>LinkedIn Discovery</div>
-          <div style={{ fontSize: '0.72rem', opacity: 0.8, fontWeight: 400 }}>Allam-2-7B SLM Opinions</div>
+          <div style={{ fontSize: '0.72rem', opacity: 0.8, fontWeight: 400 }}>Llama-3.1-8B SLM Opinions</div>
         </div>
       </button>
 

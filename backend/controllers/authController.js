@@ -1,15 +1,22 @@
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 
+const getJwtCookieOptions = () => {
+  const isProd = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'strict',
+  };
+};
+
 const generateToken = (res, userId) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: '30d',
   });
 
   res.cookie('jwt', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV !== 'development', // Use secure cookies in production
-    sameSite: 'strict', // Prevent CSRF attacks
+    ...getJwtCookieOptions(),
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 };
@@ -81,7 +88,7 @@ const loginUser = async (req, res) => {
 // @access  Public
 const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
-    httpOnly: true,
+    ...getJwtCookieOptions(),
     expires: new Date(0),
   });
   res.status(200).json({ message: 'Logged out successfully' });
@@ -109,4 +116,4 @@ const getUserProfile = async (req, res) => {
   }
 };
 
-export { registerUser, loginUser, logoutUser, getUserProfile };
+export { registerUser, loginUser, logoutUser, getUserProfile, getJwtCookieOptions };

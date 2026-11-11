@@ -123,7 +123,7 @@ def groq_chat_completion_with_retry(
     items_count: int = 1
 ):
     if not model:
-        model = os.getenv("GROQ_TOPIC_MODEL", "allam-2-7b")
+        model = os.getenv("GROQ_TOPIC_MODEL", "llama-3.1-8b-instant")
 
     if max_retries is None:
         max_retries = int(os.getenv("GROQ_MAX_RETRIES", "3"))

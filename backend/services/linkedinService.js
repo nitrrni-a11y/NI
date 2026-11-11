@@ -351,6 +351,102 @@ export const scrapeLinkedInPost = async ({ postUrl, numComments = 100 }) => {
 };
 
 /**
+ * Prepare deduplicated LinkedIn Comment Document records for a parent LinkedIn post.
+ * Shared across single-URL LinkedIn ingestion and LinkedIn Opinion Discovery ingestion.
+ */
+export const prepareLinkedInCommentDocs = async ({
+  entityId,
+  batchId,
+  canonicalPostUrl,
+  postTitle = 'LinkedIn Post',
+  comments = [],
+  provenance = 'LinkedInComment',
+  seenCanonicalUrls = null,
+}) => {
+  const validComments = (Array.isArray(comments) ? comments : []).filter((c) => {
+    if (!c || c.selected === false) return false;
+    const text = (c.rawText || c.text || '').trim();
+    return text.length > 0;
+  });
+
+  if (validComments.length === 0) {
+    return { commentDocs: [], commentsSkipped: 0 };
+  }
+
+  const getCommentKey = (c) => {
+    const commentText = (c.rawText || c.text || '').trim();
+    const author = (c.author || 'LinkedIn User').trim();
+    return c.id || c.commentId || computeHash(`${commentText}_${author}`);
+  };
+
+  const candidateUrls = validComments.map(
+    (c) => `${canonicalPostUrl}#comment_${getCommentKey(c)}`
+  );
+
+  const existingCommentDocs = await Document.find({
+    entityId,
+    canonicalUrl: { $in: candidateUrls },
+  }).select('canonicalUrl').lean();
+
+  const existingCanonicalSet = new Set(existingCommentDocs.map((d) => d.canonicalUrl));
+  const commentDocs = [];
+  let commentsSkipped = 0;
+
+  for (const c of validComments) {
+    const commentText = (c.rawText || c.text || '').trim();
+    const uniqueCommentKey = getCommentKey(c);
+    const commentCanonicalUrl = `${canonicalPostUrl}#comment_${uniqueCommentKey}`;
+
+    if (existingCanonicalSet.has(commentCanonicalUrl) || seenCanonicalUrls?.has(commentCanonicalUrl)) {
+      commentsSkipped++;
+      continue;
+    }
+
+    existingCanonicalSet.add(commentCanonicalUrl);
+    seenCanonicalUrls?.add(commentCanonicalUrl);
+
+    const rawDate = c.publicationDate || c.publishedAt || null;
+    const parsedDate = rawDate ? new Date(rawDate) : null;
+    const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
+
+    const commenterName = (c.author || 'LinkedIn User').trim();
+    const commentTitle = `Comment by ${commenterName} on "${(postTitle || 'LinkedIn Post').slice(0, 40)}"`.slice(0, 150);
+
+    commentDocs.push({
+      entityId,
+      batchId,
+      title: commentTitle,
+      rawText: commentText,
+      source: 'LinkedIn',
+      sourceType: 'LinkedIn Comment',
+      author: commenterName,
+      url: canonicalPostUrl,
+      canonicalUrl: commentCanonicalUrl,
+      contentHash: computeHash(commentText),
+      publicationDate: validDate,
+      collectedDate: new Date(),
+      processingStatus: 'not_processed',
+      extractionStatus: 'success',
+      metadata: {
+        provenance,
+        platform: 'LinkedIn',
+        type: 'comment',
+        parentPostUrl: canonicalPostUrl,
+        parentPostTitle: postTitle || '',
+        commentId: c.id || c.commentId || '',
+        likesCount: Number(c.likesCount) || 0,
+        isReply: Boolean(c.isReply),
+        parentCommentId: c.parentCommentId || null,
+        parentAuthor: c.parentAuthor || null,
+        authorHeadline: c.authorHeadline || '',
+      },
+    });
+  }
+
+  return { commentDocs, commentsSkipped };
+};
+
+/**
  * Ingest cleaned LinkedIn post and comments into MongoDB Document collection.
  * Creates one document for the post, and one document for each cleaned comment.
  * Deduplicates based on canonical URL and creates a ProcessingJob (status: READY).
@@ -414,75 +510,19 @@ export const ingestLinkedInData = async ({
   }
 
   // 2. Deduplicate & prepare Comment Documents
-  let commentsInsertedCount = 0;
   let commentsSkippedCount = 0;
 
   if (Array.isArray(comments) && comments.length > 0) {
-    // Generate candidate canonical URLs for batch duplicate checking
-    const candidateUrls = comments.map(c => {
-      const uniqueCommentKey = c.id || computeHash(`${c.rawText}_${c.author}`);
-      return `${canonicalPostUrl}#comment_${uniqueCommentKey}`;
-    });
-
-    const existingCommentDocs = await Document.find({
+    const prepared = await prepareLinkedInCommentDocs({
       entityId,
-      canonicalUrl: { $in: candidateUrls }
-    }).select('canonicalUrl').lean();
-
-    const existingCanonicalSet = new Set(existingCommentDocs.map(d => d.canonicalUrl));
-
-    for (let i = 0; i < comments.length; i++) {
-      const c = comments[i];
-      const commentText = (c.rawText || '').trim();
-      if (!commentText) continue;
-
-      const uniqueCommentKey = c.id || computeHash(`${commentText}_${c.author}`);
-      const commentCanonicalUrl = `${canonicalPostUrl}#comment_${uniqueCommentKey}`;
-
-      if (existingCanonicalSet.has(commentCanonicalUrl)) {
-        commentsSkippedCount++;
-        continue;
-      }
-
-      existingCanonicalSet.add(commentCanonicalUrl);
-
-      const parsedDate = c.publicationDate ? new Date(c.publicationDate) : null;
-      const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
-
-      const commenterName = (c.author || 'LinkedIn User').trim();
-      const commentTitle = `Comment by ${commenterName} on "${(post.title || 'LinkedIn Post').slice(0, 40)}"`.slice(0, 150);
-
-      docsToInsert.push({
-        entityId,
-        batchId,
-        title: commentTitle,
-        rawText: commentText,
-        source: 'LinkedIn',
-        sourceType: 'LinkedIn Comment',
-        author: commenterName,
-        url: canonicalPostUrl,
-        canonicalUrl: commentCanonicalUrl,
-        contentHash: computeHash(commentText),
-        publicationDate: validDate,
-        collectedDate: new Date(),
-        processingStatus: 'not_processed',
-        extractionStatus: 'success',
-        metadata: {
-          provenance: 'LinkedInComment',
-          platform: 'LinkedIn',
-          type: 'comment',
-          parentPostUrl: canonicalPostUrl,
-          parentPostTitle: post.title || '',
-          commentId: c.id || '',
-          likesCount: Number(c.likesCount) || 0,
-          isReply: Boolean(c.isReply),
-          parentCommentId: c.parentCommentId || null,
-          parentAuthor: c.parentAuthor || null,
-          authorHeadline: c.authorHeadline || ''
-        }
-      });
-      commentsInsertedCount++;
-    }
+      batchId,
+      canonicalPostUrl,
+      postTitle: post.title || 'LinkedIn Post',
+      comments,
+      provenance: 'LinkedInComment',
+    });
+    docsToInsert.push(...prepared.commentDocs);
+    commentsSkippedCount = prepared.commentsSkipped;
   }
 
   // 3. Save to MongoDB

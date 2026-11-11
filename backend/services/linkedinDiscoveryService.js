@@ -3,16 +3,18 @@ import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
 import aiService from './aiService.js';
 import { computeHash } from './articleExtractor.js';
-import { cleanText, normalizeLinkedInUrl } from './linkedinService.js';
+import { cleanText, normalizeLinkedInUrl, prepareLinkedInCommentDocs } from './linkedinService.js';
+import { resolveTranscriptTranslationFields } from './youtubeService.js';
 
 /**
  * Discovers LinkedIn posts for an organisation and its aliases using Apify
- * and classifies them for direct opinions using the Allam-2-7B SLM via the AI service.
+ * and classifies them for direct opinions using the Llama-3.1-8B SLM via the AI service.
  */
 export const discoverAndClassifyOpinions = async ({
   organisation,
   aliases = [],
   maxResultsPerQuery = 20,
+  entityId = null,
 }) => {
   const token = process.env.APIFY_API_TOKEN;
   if (!token || !token.trim()) {
@@ -172,11 +174,32 @@ export const discoverAndClassifyOpinions = async ({
       contains_opinion: false,
       opinion_type: 'None',
       reason: 'Awaiting classification.',
-      requires_manual_inspection: true
+      requires_manual_inspection: true,
+      alreadyIngested: false,
     });
   }
 
-  // --- CLASSIFY USING EXISTING ALLAM-2-7B SLM ---
+  // Check which posts already exist in MongoDB Document collection for this entity
+  if (entityId && uniquePosts.length > 0) {
+    try {
+      const candidateUrls = uniquePosts.map(p => p.canonicalUrl);
+      const existingDocs = await Document.find({
+        entityId,
+        canonicalUrl: { $in: candidateUrls }
+      }).select('canonicalUrl').lean();
+
+      const existingSet = new Set(existingDocs.map(d => d.canonicalUrl));
+      uniquePosts.forEach(p => {
+        if (existingSet.has(p.canonicalUrl)) {
+          p.alreadyIngested = true;
+        }
+      });
+    } catch (dbErr) {
+      console.warn('[LinkedInDiscovery] Error checking existing documents:', dbErr.message);
+    }
+  }
+
+  // --- CLASSIFY USING EXISTING LLAMA-3.1-8B SLM ---
   if (uniquePosts.length > 0) {
     try {
       const classificationRes = await aiService.classifyLinkedInOpinions(
@@ -204,7 +227,7 @@ export const discoverAndClassifyOpinions = async ({
         }
       }
     } catch (err) {
-      console.warn(`[LinkedInDiscovery] Allam-2-7B opinion classification failed, falling back to manual inspection:`, err.message);
+      console.warn(`[LinkedInDiscovery] Llama-3.1-8B opinion classification failed, falling back to manual inspection:`, err.message);
       for (const p of uniquePosts) {
         p.classification = 'Uncertain';
         p.reason = `AI opinion classification service unavailable (${err.message}). Marked for manual inspection.`;
@@ -218,7 +241,8 @@ export const discoverAndClassifyOpinions = async ({
     relevantOpinion: uniquePosts.filter(p => p.classification === 'Relevant Opinion').length,
     newsAnnouncement: uniquePosts.filter(p => p.classification === 'News / Announcement').length,
     irrelevant: uniquePosts.filter(p => p.classification === 'Irrelevant').length,
-    uncertain: uniquePosts.filter(p => p.classification === 'Uncertain').length
+    uncertain: uniquePosts.filter(p => p.classification === 'Uncertain').length,
+    alreadyIngested: uniquePosts.filter(p => p.alreadyIngested).length,
   };
 
   return {
@@ -233,7 +257,8 @@ export const discoverAndClassifyOpinions = async ({
 };
 
 /**
- * Ingest selected discovered opinion posts as individual documents into MongoDB.
+ * Ingest selected discovered opinion posts (plus any extracted comments and cached translations)
+ * as individual documents into MongoDB.
  * Deduplicates by canonicalUrl and creates a ProcessingJob (status: READY).
  */
 export const ingestDiscoveredPosts = async ({
@@ -249,63 +274,100 @@ export const ingestDiscoveredPosts = async ({
   }
 
   const batchId = `BATCH_LI_DISC_${Date.now()}`;
-  const candidateUrls = posts.map(p => p.canonicalUrl || p.url);
+  const candidateUrls = posts.map(p => p.canonicalUrl || p.url).filter(Boolean);
 
-  // Deduplicate against existing MongoDB documents for this entity
+  // Deduplicate posts against existing MongoDB documents for this entity
   const existingDocs = await Document.find({
     entityId,
     canonicalUrl: { $in: candidateUrls }
   }).select('canonicalUrl').lean();
 
   const existingSet = new Set(existingDocs.map(d => d.canonicalUrl));
+  const seenCommentUrls = new Set();
   const docsToInsert = [];
-  let skippedCount = 0;
+  let duplicatesSkipped = 0;
 
   for (const post of posts) {
     const canonicalUrl = post.canonicalUrl || post.url;
-    if (existingSet.has(canonicalUrl)) {
-      skippedCount++;
-      continue;
-    }
-    existingSet.add(canonicalUrl);
-
-    const postText = (post.rawText || '').trim();
-    if (!postText) continue;
+    if (!canonicalUrl) continue;
 
     const authorName = (post.author || 'LinkedIn User').trim();
     const title = (post.title || `LinkedIn Opinion by ${authorName}`).slice(0, 150);
 
-    const parsedDate = post.publicationDate ? new Date(post.publicationDate) : null;
-    const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
+    // 1. Ingest Post Document (unless already in DB or explicitly skipped)
+    if (post.includePost !== false) {
+      if (existingSet.has(canonicalUrl)) {
+        duplicatesSkipped++;
+      } else {
+        existingSet.add(canonicalUrl);
 
-    docsToInsert.push({
-      entityId,
-      batchId,
-      title,
-      rawText: postText,
-      source: 'LinkedIn',
-      sourceType: 'LinkedIn Post',
-      author: authorName,
-      url: post.url || canonicalUrl,
-      canonicalUrl,
-      contentHash: computeHash(postText),
-      publicationDate: validDate,
-      collectedDate: new Date(),
-      processingStatus: 'not_processed',
-      extractionStatus: 'success',
-      metadata: {
-        provenance: 'LinkedInOpinionDiscovery',
-        platform: 'LinkedIn',
-        type: 'post',
-        discoveryQuery: post.matchedQuery || '',
-        likesCount: Number(post.likesCount) || 0,
-        commentsCount: Number(post.commentsCount) || 0,
-        classification: post.classification || 'Relevant Opinion',
-        opinionType: post.opinion_type || 'None',
-        classificationReason: post.reason || '',
-        authorHeadline: post.authorHeadline || ''
+        const postText = (post.rawText || '').trim();
+        if (postText) {
+          const parsedDate = post.publicationDate ? new Date(post.publicationDate) : null;
+          const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
+
+          const translationFields = resolveTranscriptTranslationFields({
+            detectedLanguage: post.detectedLanguage || post.languageCode || 'en',
+            translatedText: post.translatedText || '',
+            translationStatus: post.translationStatus || 'not_required',
+          }, post.detectedLanguage || 'en');
+
+          docsToInsert.push({
+            entityId,
+            batchId,
+            title,
+            rawText: postText,
+            ...translationFields,
+            source: 'LinkedIn',
+            sourceType: 'LinkedIn Post',
+            author: authorName,
+            url: post.url || canonicalUrl,
+            canonicalUrl,
+            contentHash: computeHash(postText),
+            publicationDate: validDate,
+            collectedDate: new Date(),
+            processingStatus: 'not_processed',
+            extractionStatus: 'success',
+            metadata: {
+              provenance: 'LinkedInOpinionDiscovery',
+              platform: 'LinkedIn',
+              type: 'post',
+              discoveryQuery: post.matchedQuery || '',
+              likesCount: Number(post.likesCount) || 0,
+              commentsCount: Number(post.commentsCount) || 0,
+              classification: post.classification || 'Relevant Opinion',
+              opinionType: post.opinion_type || 'None',
+              classificationReason: post.reason || '',
+              authorHeadline: post.authorHeadline || ''
+            }
+          });
+        }
       }
-    });
+    }
+
+    // 2. Ingest optional extracted Comments for this post
+    let rawCommentsList = [];
+    if (Array.isArray(post.selectedComments)) {
+      rawCommentsList = post.selectedComments;
+    } else if (Array.isArray(post.comments)) {
+      rawCommentsList = post.comments;
+    } else if (post.comments && post.comments.include !== false && Array.isArray(post.comments.items)) {
+      rawCommentsList = post.comments.items;
+    }
+
+    if (rawCommentsList.length > 0) {
+      const preparedComments = await prepareLinkedInCommentDocs({
+        entityId,
+        batchId,
+        canonicalPostUrl: canonicalUrl,
+        postTitle: title,
+        comments: rawCommentsList,
+        provenance: 'LinkedInDiscoveryComment',
+        seenCanonicalUrls: seenCommentUrls,
+      });
+      docsToInsert.push(...preparedComments.commentDocs);
+      duplicatesSkipped += preparedComments.commentsSkipped;
+    }
   }
 
   if (docsToInsert.length === 0) {
@@ -313,8 +375,11 @@ export const ingestDiscoveredPosts = async ({
       success: true,
       batchId: null,
       insertedCount: 0,
-      duplicatesSkipped: skippedCount,
-      message: `All ${skippedCount} selected post(s) already exist in the database for this entity.`
+      postsInserted: 0,
+      commentsInserted: 0,
+      duplicatesSkipped,
+      message: `All ${duplicatesSkipped} selected item(s) already exist in the database for this entity.`,
+      documents: []
     };
   }
 
@@ -330,6 +395,8 @@ export const ingestDiscoveredPosts = async ({
   }
 
   const actualSavedCount = insertedDocs.length;
+  const postsInserted = insertedDocs.filter(d => d.sourceType === 'LinkedIn Post').length;
+  const commentsInserted = insertedDocs.filter(d => d.sourceType === 'LinkedIn Comment').length;
 
   if (actualSavedCount > 0) {
     await ProcessingJob.create({
@@ -348,8 +415,10 @@ export const ingestDiscoveredPosts = async ({
     success: true,
     batchId,
     insertedCount: actualSavedCount,
-    duplicatesSkipped: skippedCount,
-    message: `Successfully ingested ${actualSavedCount} discovered LinkedIn opinion post(s) into database (${skippedCount} duplicates skipped).`,
+    postsInserted,
+    commentsInserted,
+    duplicatesSkipped,
+    message: `Successfully ingested ${actualSavedCount} LinkedIn document(s) (${postsInserted} post(s), ${commentsInserted} comment(s); ${duplicatesSkipped} duplicate(s) skipped).`,
     documents: insertedDocs
   };
 };

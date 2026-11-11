@@ -243,8 +243,9 @@ const getNarratives = async (req, res) => {
       priority,
       positive_significance
     } = req.query;
+    const isAdmin = req.user?.role === 'admin';
     const query = {};
-    if (is_published === 'true') {
+    if (!isAdmin || is_published === 'true') {
       query.isPublished = true;
     }
     if (entity_id) {
@@ -272,8 +273,10 @@ const getNarratives = async (req, res) => {
       query.positiveSignificance = positive_significance;
     }
 
-    // Low-evidence filtering: by default hide candidate observations from main dashboard
-    if (status === 'candidate') {
+    // Low-evidence filtering: non-admins are strictly restricted to established narratives
+    if (!isAdmin) {
+      query.isEligibleForDisplay = { $ne: false };
+    } else if (status === 'candidate') {
       query.isEligibleForDisplay = false;
     } else if (status === 'all' || include_candidates === 'true') {
       // include all
@@ -300,12 +303,15 @@ const getNarratives = async (req, res) => {
 const getNarrativeById = async (req, res) => {
   try {
     const narrative = await Narrative.findById(req.params.id);
-    if (narrative) {
-      const populated = await populateNarrativeTimeline(narrative);
-      res.json(populated);
-    } else {
-      res.status(404).json({ message: 'Narrative not found' });
+    if (!narrative) {
+      return res.status(404).json({ message: 'Narrative not found' });
     }
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && !narrative.isPublished) {
+      return res.status(404).json({ message: 'Narrative not found' });
+    }
+    const populated = await populateNarrativeTimeline(narrative);
+    res.json(populated);
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching narrative' });
   }

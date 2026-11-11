@@ -13,6 +13,8 @@ from app.pipeline.schemas import (
     ProcessCSVResponse,
     YouTubeExtractRequest,
     YouTubeExtractResponse,
+    TranslateTextRequest,
+    TranslateTextResponse,
     CancelBatchRequest,
     LinkedInClassifyRequest,
     LinkedInClassifyResponse,
@@ -337,7 +339,46 @@ def extract_youtube_endpoint(request: YouTubeExtractRequest):
 
 
 # ============================================================
-# LINKEDIN OPINION CLASSIFICATION (Allam-2-7B SLM)
+# ON-DEMAND TEXT TRANSLATION
+# ============================================================
+
+@app.post(
+    "/translate/text",
+    response_model=TranslateTextResponse
+)
+def translate_text_endpoint(request: TranslateTextRequest):
+    """
+    Detects language and translates non-English text into English on demand using Gemini.
+    """
+    if not request.text or not request.text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Text is required for translation."
+        )
+
+    from app.pipeline.translation import translate_on_demand
+
+    try:
+        result = translate_on_demand(
+            request.text,
+            source_language=request.source_language
+        )
+        return TranslateTextResponse(**result)
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=400,
+            detail=str(ve)
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"On-demand translation failed: {str(e)}"
+        )
+
+
+# ============================================================
+# LINKEDIN OPINION CLASSIFICATION (Llama-3.1-8B SLM)
 # ============================================================
 
 @app.post(
@@ -347,7 +388,7 @@ def extract_youtube_endpoint(request: YouTubeExtractRequest):
 def classify_linkedin_opinions_endpoint(request: LinkedInClassifyRequest):
     """
     Classifies discovered LinkedIn posts for direct opinions, criticisms, praise,
-    or inquiries about the target organisation using the Allam-2-7B SLM on Groq.
+    or inquiries about the target organisation using the Llama-3.1-8B SLM on Groq.
     """
     if not request.organisation_name or not request.organisation_name.strip():
         raise HTTPException(

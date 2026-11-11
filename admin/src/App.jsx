@@ -13,7 +13,6 @@ import YouTubeDiscovery from './pages/YouTubeDiscovery';
 import GlobalLayout from './components/GlobalLayout';
 import Domains from './pages/Domains';
 import DomainEntities from './pages/DomainEntities';
-import Institution from './pages/Institution';
 
 function App() {
   return (
@@ -30,7 +29,6 @@ function App() {
         <Route path="/entity/:entityId" element={<AdminLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="institution" element={<Institution />} />
           <Route path="linkedin-post" element={<Navigate to="../data/add?tab=linkedin" replace />} />
           <Route path="youtube-extractor" element={<Navigate to="../data/add?tab=youtube" replace />} />
           <Route path="discovery" element={<Navigate to="youtube" replace />} />

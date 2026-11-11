@@ -3,7 +3,7 @@ import Document from '../models/Document.js';
 import ProcessingJob from '../models/ProcessingJob.js';
 import aiService from './aiService.js';
 import { computeHash } from './articleExtractor.js';
-import { extractVideoId } from './youtubeService.js';
+import { extractVideoId, resolveTranscriptTranslationFields, prepareYouTubeCommentDocs } from './youtubeService.js';
 
 /**
  * Domain-specific review query templates.
@@ -228,6 +228,8 @@ export const discoverYouTubeVideos = async ({
   queries = [],
   maxResultsPerQuery = 10,
   extractTranscripts = true,
+  extractComments = false,
+  maxComments = 30,
   entityId = null
 }) => {
   const token = process.env.APIFY_API_TOKEN;
@@ -304,6 +306,7 @@ export const discoverYouTubeVideos = async ({
         uncertainOther: 0,
         transcriptsExtracted: 0,
         transcriptsUnavailable: 0,
+        commentsExtracted: 0,
         alreadyIngested: 0
       },
       videos: []
@@ -348,9 +351,14 @@ export const discoverYouTubeVideos = async ({
       // Transcript fields (to be populated)
       hasTranscript: false,
       transcriptSnippet: '',
-      transcriptStatus: 'pending',
+      transcriptStatus: extractTranscripts ? 'pending' : 'not_requested',
       transcriptError: null,
       transcriptData: null,
+      // Comments fields (to be populated optionally or on-demand)
+      commentsExtracted: false,
+      commentsStatus: extractComments ? 'pending' : 'not_requested',
+      commentsError: null,
+      commentsData: null,
       alreadyIngested: false
     });
   }
@@ -375,60 +383,98 @@ export const discoverYouTubeVideos = async ({
     }
   }
 
-  // --- TRANSCRIPT EXTRACTION FOR DISCOVERED VIDEOS ---
+  // --- TRANSCRIPT & OPTIONAL COMMENTS EXTRACTION FOR DISCOVERED VIDEOS ---
   let transcriptsExtractedCount = 0;
   let transcriptsUnavailableCount = 0;
+  let commentsExtractedCount = 0;
 
-  if (extractTranscripts && uniqueVideos.length > 0) {
-    // Process transcript extraction sequentially or in small concurrency batches to avoid overloading the AI service
+  if ((extractTranscripts || extractComments) && uniqueVideos.length > 0) {
+    const targetMaxComments = Math.max(1, Math.min(Number(maxComments) || 30, 500));
     const BATCH_SIZE = 3;
     for (let i = 0; i < uniqueVideos.length; i += BATCH_SIZE) {
       const chunk = uniqueVideos.slice(i, i + BATCH_SIZE);
       await Promise.all(chunk.map(async (video) => {
         try {
           const result = await aiService.extractYouTubeData(video.url, {
-            extractTranscript: true,
-            extractComments: false
+            extractTranscript: Boolean(extractTranscripts),
+            extractComments: Boolean(extractComments),
+            maxComments: targetMaxComments
           });
 
-          if (result && result.raw_text && result.raw_text.trim()) {
-            video.hasTranscript = true;
-            video.transcriptStatus = 'available';
-            video.transcriptSnippet = result.raw_text.trim().slice(0, 350) + (result.raw_text.length > 350 ? '...' : '');
-            video.transcriptData = {
-              raw_text: result.raw_text,
-              detected_language: result.detected_language || 'en',
-              language_name: result.language_name || 'English',
-              is_generated: result.is_generated || false,
-              char_count: result.char_count || result.raw_text.length,
-              word_count: result.word_count || result.raw_text.split(/\s+/).length,
-              estimated_reading_minutes: result.estimated_reading_minutes || 1
-            };
-            transcriptsExtractedCount++;
-          } else {
-            video.hasTranscript = false;
-            video.transcriptStatus = 'unavailable';
-            video.transcriptError = 'Transcript not found or empty.';
-            transcriptsUnavailableCount++;
+          if (extractTranscripts) {
+            const tr = result?.transcript;
+            const trText = (tr ? (tr.success ? tr.raw_text : '') : result?.raw_text) || '';
+            if (trText.trim()) {
+              const langCode = tr?.detected_language || result?.detected_language || 'en';
+              const langName = tr?.language_name || result?.language_name || 'English';
+              const wordCount = tr?.word_count || result?.word_count || trText.trim().split(/\s+/).length;
+              const readMins = tr?.estimated_reading_minutes || result?.estimated_reading_minutes || 1;
+              video.hasTranscript = true;
+              video.transcriptStatus = 'available';
+              video.transcriptSnippet = trText.trim().slice(0, 350) + (trText.length > 350 ? '...' : '');
+              video.transcriptData = {
+                raw_text: trText.trim(),
+                detected_language: langCode,
+                language_name: langName,
+                is_generated: tr?.is_generated ?? result?.is_generated ?? false,
+                char_count: tr?.char_count || result?.char_count || trText.length,
+                word_count: wordCount,
+                estimated_reading_minutes: readMins
+              };
+              transcriptsExtractedCount++;
+            } else {
+              video.hasTranscript = false;
+              const trErr = tr?.error || 'Transcript not found or empty.';
+              if (trErr.toLowerCase().includes('disabled')) {
+                video.transcriptStatus = 'disabled';
+                video.transcriptError = 'Subtitles/transcripts are disabled by the video owner.';
+              } else {
+                video.transcriptStatus = 'unavailable';
+                video.transcriptError = trErr;
+              }
+              transcriptsUnavailableCount++;
+            }
+          }
+
+          if (extractComments) {
+            const cRes = result?.comments;
+            if (cRes && cRes.success && Array.isArray(cRes.comments) && cRes.comments.length > 0) {
+              video.commentsExtracted = true;
+              video.commentsStatus = cRes.status || 'success';
+              video.commentsData = cRes;
+              commentsExtractedCount++;
+            } else {
+              video.commentsExtracted = false;
+              video.commentsStatus = cRes?.status || 'empty';
+              video.commentsError = cRes?.error || null;
+              video.commentsData = cRes || null;
+            }
           }
         } catch (extractErr) {
-          video.hasTranscript = false;
-          const msg = extractErr.message || 'Captions unavailable';
-          if (msg.includes('disabled')) {
-            video.transcriptStatus = 'disabled';
-            video.transcriptError = 'Subtitles/transcripts are disabled by the video owner.';
-          } else {
-            video.transcriptStatus = 'unavailable';
-            video.transcriptError = msg;
+          const msg = extractErr.message || 'Extraction unavailable';
+          if (extractTranscripts) {
+            video.hasTranscript = false;
+            if (msg.toLowerCase().includes('disabled')) {
+              video.transcriptStatus = 'disabled';
+              video.transcriptError = 'Subtitles/transcripts are disabled by the video owner.';
+            } else {
+              video.transcriptStatus = 'unavailable';
+              video.transcriptError = msg;
+            }
+            transcriptsUnavailableCount++;
           }
-          transcriptsUnavailableCount++;
+          if (extractComments) {
+            video.commentsExtracted = false;
+            video.commentsStatus = 'failed';
+            video.commentsError = msg;
+          }
         }
       }));
     }
   } else {
-    // Transcripts not requested or skipped
     uniqueVideos.forEach(v => {
       v.transcriptStatus = 'not_requested';
+      v.commentsStatus = 'not_requested';
     });
   }
 
@@ -448,6 +494,7 @@ export const discoverYouTubeVideos = async ({
       uncertainOther: uncertainOtherCount,
       transcriptsExtracted: transcriptsExtractedCount,
       transcriptsUnavailable: transcriptsUnavailableCount,
+      commentsExtracted: commentsExtractedCount,
       alreadyIngested: alreadyIngestedCount
     },
     videos: uniqueVideos
@@ -455,7 +502,7 @@ export const discoverYouTubeVideos = async ({
 };
 
 /**
- * Ingest selected discovered YouTube videos into the MongoDB Document collection.
+ * Ingest selected discovered YouTube videos (transcripts + optional comments) into MongoDB Document collection.
  * Deduplicates against existing canonical URLs and creates a ProcessingJob for the AI pipeline.
  */
 export const ingestDiscoveredVideos = async ({
@@ -473,13 +520,14 @@ export const ingestDiscoveredVideos = async ({
   const batchId = `BATCH_YT_DISC_${Date.now()}`;
   const candidateUrls = videos.map(v => v.url || `https://www.youtube.com/watch?v=${v.videoId || v.id}`);
 
-  // Check existing documents
+  // Check existing video transcript documents
   const existingDocs = await Document.find({
     entityId,
     canonicalUrl: { $in: candidateUrls }
   }).select('canonicalUrl').lean();
 
   const existingSet = new Set(existingDocs.map(d => d.canonicalUrl));
+  const existingCommentSet = new Set();
   const docsToInsert = [];
   let duplicatesSkipped = 0;
 
@@ -487,66 +535,125 @@ export const ingestDiscoveredVideos = async ({
     const videoId = video.videoId || video.id;
     const canonicalUrl = video.url || `https://www.youtube.com/watch?v=${videoId}`;
 
-    if (existingSet.has(canonicalUrl)) {
-      duplicatesSkipped++;
-      continue;
-    }
-    existingSet.add(canonicalUrl);
+    // 1. Transcript / video document
+    if (video.includeTranscript !== false) {
+      if (existingSet.has(canonicalUrl)) {
+        duplicatesSkipped++;
+      } else {
+        existingSet.add(canonicalUrl);
 
-    // Prepare text content: use transcript if available, else combine title + description + video details
-    let textContent = '';
-    if (video.transcriptData && video.transcriptData.raw_text && video.transcriptData.raw_text.trim()) {
-      textContent = video.transcriptData.raw_text.trim();
-    } else if (video.rawText && video.rawText.trim()) {
-      textContent = video.rawText.trim();
-    } else {
-      const parts = [];
-      if (video.title) parts.push(`Video Title: ${video.title}`);
-      if (video.channelName) parts.push(`Channel: ${video.channelName}`);
-      if (video.description) parts.push(`Description:\n${video.description}`);
-      textContent = parts.join('\n\n').trim();
-    }
+        const td = video.transcriptData || {};
+        const trPayload = video.transcript || {};
+        let textContent = '';
+        if (typeof trPayload.rawText === 'string' && trPayload.rawText.trim()) {
+          textContent = trPayload.rawText.trim();
+        } else if (typeof td.raw_text === 'string' && td.raw_text.trim()) {
+          textContent = td.raw_text.trim();
+        } else if (typeof video.rawText === 'string' && video.rawText.trim()) {
+          textContent = video.rawText.trim();
+        } else {
+          const parts = [];
+          if (video.title) parts.push(`Video Title: ${video.title}`);
+          if (video.channelName) parts.push(`Channel: ${video.channelName}`);
+          if (video.description) parts.push(`Description:\n${video.description}`);
+          textContent = parts.join('\n\n').trim();
+        }
 
-    if (!textContent) {
-      textContent = video.title || 'YouTube Video Review';
-    }
+        if (!textContent) {
+          textContent = video.title || 'YouTube Video Review';
+        }
 
-    const contentHash = computeHash(textContent.slice(0, 500));
-    const pubDate = video.publishedAt ? new Date(video.publishedAt) : null;
-    const validPubDate = pubDate && !isNaN(pubDate.getTime()) ? pubDate : null;
+        const hasActualTranscript = Boolean(
+          video.hasTranscript ||
+          (typeof td.raw_text === 'string' && td.raw_text.trim()) ||
+          (typeof trPayload.rawText === 'string' && trPayload.rawText.trim())
+        );
 
-    docsToInsert.push({
-      entityId,
-      batchId,
-      title: (video.title || 'YouTube Video Review').trim(),
-      rawText: textContent,
-      source: 'YouTube',
-      sourceType: 'YouTube Video',
-      author: (video.channelName || 'Unknown Channel').trim(),
-      url: canonicalUrl,
-      canonicalUrl,
-      contentHash,
-      publicationDate: validPubDate,
-      collectedDate: new Date(),
-      processingStatus: 'not_processed',
-      extractionStatus: video.hasTranscript ? 'success' : 'partial',
-      metadata: {
-        provenance: 'YouTubeDiscovery',
-        videoId,
-        channelName: video.channelName || '',
-        channelUrl: video.channelUrl || '',
-        viewCount: Number(video.viewCount) || 0,
-        likeCount: Number(video.likeCount) || 0,
-        commentCount: Number(video.commentCount) || 0,
-        durationSeconds: video.durationSeconds || null,
-        durationText: video.durationText || '',
-        thumbnailUrl: video.thumbnailUrl || '',
-        hasTranscript: Boolean(video.hasTranscript),
-        searchQuery: video.searchQuery || '',
-        classification: video.classification || 'Likely Review',
-        relevanceScore: video.relevanceScore || 0.8
+        const fallbackLang = trPayload.detectedLanguage || trPayload.languageCode || td.detected_language || td.detectedLanguage || video.detectedLanguage || 'en';
+        const translationFields = hasActualTranscript
+          ? resolveTranscriptTranslationFields({
+              detectedLanguage: trPayload.detectedLanguage || trPayload.languageCode || td.detectedLanguage || td.detected_language || video.detectedLanguage,
+              translatedText: trPayload.translatedText || td.translatedText || td.translated_text || video.translatedText,
+              translationStatus: trPayload.translationStatus || td.translationStatus || td.translation_status || video.translationStatus,
+            }, fallbackLang)
+          : { detectedLanguage: 'en', translatedText: '', processingText: '', translationStatus: 'not_required' };
+
+        const contentHash = computeHash(textContent.slice(0, 500));
+        const pubDate = video.publishedAt ? new Date(video.publishedAt) : null;
+        const validPubDate = pubDate && !isNaN(pubDate.getTime()) ? pubDate : null;
+
+        docsToInsert.push({
+          entityId,
+          batchId,
+          title: (video.title || 'YouTube Video Review').trim(),
+          rawText: textContent,
+          ...translationFields,
+          source: 'YouTube',
+          sourceType: 'YouTube Video',
+          author: (video.channelName || 'Unknown Channel').trim(),
+          url: canonicalUrl,
+          canonicalUrl,
+          contentHash,
+          publicationDate: validPubDate,
+          collectedDate: new Date(),
+          processingStatus: 'not_processed',
+          extractionStatus: hasActualTranscript ? 'success' : 'partial',
+          metadata: {
+            provenance: 'YouTubeDiscovery',
+            videoId,
+            channelName: video.channelName || '',
+            channelUrl: video.channelUrl || '',
+            viewCount: Number(video.viewCount) || 0,
+            likeCount: Number(video.likeCount) || 0,
+            commentCount: Number(video.commentCount) || 0,
+            durationSeconds: video.durationSeconds || null,
+            durationText: video.durationText || '',
+            thumbnailUrl: video.thumbnailUrl || '',
+            hasTranscript: hasActualTranscript,
+            searchQuery: video.searchQuery || '',
+            classification: video.classification || 'Likely Review',
+            relevanceScore: video.relevanceScore || 0.8
+          }
+        });
       }
-    });
+    }
+
+    // 2. Optional Comments documents for this video
+    let rawCommentItems = [];
+    if (Array.isArray(video.comments)) {
+      rawCommentItems = video.comments;
+    } else if (video.comments && video.comments.include !== false) {
+      if (Array.isArray(video.comments.items)) {
+        rawCommentItems = video.comments.items;
+      } else if (Array.isArray(video.comments.comments)) {
+        rawCommentItems = video.comments.comments;
+      }
+    } else if (video.commentsData && Array.isArray(video.commentsData.comments)) {
+      rawCommentItems = video.commentsData.comments;
+    }
+
+    if (rawCommentItems.length > 0) {
+      // Load existing DB comment URLs for this batch/video inside prepareYouTubeCommentDocs,
+      // and use existingCommentSet to prevent duplicates across videos in the same payload.
+      const prepared = await prepareYouTubeCommentDocs({
+        entityId,
+        batchId,
+        canonicalVideoUrl: canonicalUrl,
+        videoId,
+        videoTitle: video.title || 'YouTube Video Review',
+        items: rawCommentItems,
+        provenance: 'YouTubeDiscoveryComments'
+      });
+      for (const cDoc of prepared.commentDocs) {
+        if (existingCommentSet.has(cDoc.canonicalUrl)) {
+          duplicatesSkipped++;
+        } else {
+          existingCommentSet.add(cDoc.canonicalUrl);
+          docsToInsert.push(cDoc);
+        }
+      }
+      duplicatesSkipped += prepared.commentsSkipped;
+    }
   }
 
   if (docsToInsert.length === 0) {
@@ -554,10 +661,12 @@ export const ingestDiscoveredVideos = async ({
       success: true,
       batchId: null,
       insertedCount: 0,
+      transcriptsInserted: 0,
+      commentsInserted: 0,
       duplicatesSkipped,
       message: duplicatesSkipped > 0
-        ? `All ${duplicatesSkipped} selected video(s) are already ingested into the database for this entity.`
-        : 'No new videos to ingest.'
+        ? `All ${duplicatesSkipped} selected item(s) are already ingested into the database for this entity.`
+        : 'No new documents to ingest.'
     };
   }
 
@@ -573,6 +682,8 @@ export const ingestDiscoveredVideos = async ({
   }
 
   const actualSavedCount = insertedDocs.length;
+  const transcriptsInserted = insertedDocs.filter(d => d.source === 'YouTube').length;
+  const commentsInserted = insertedDocs.filter(d => d.source === 'YouTube Comments').length;
 
   if (actualSavedCount > 0) {
     await ProcessingJob.create({
@@ -591,8 +702,10 @@ export const ingestDiscoveredVideos = async ({
     success: true,
     batchId,
     insertedCount: actualSavedCount,
+    transcriptsInserted,
+    commentsInserted,
     duplicatesSkipped,
-    message: `Successfully ingested ${actualSavedCount} YouTube video review(s) into database (${duplicatesSkipped} duplicate(s) skipped).`,
+    message: `Successfully ingested ${actualSavedCount} document(s) (${transcriptsInserted} video transcript(s), ${commentsInserted} comment(s); ${duplicatesSkipped} duplicate(s) skipped).`,
     documents: insertedDocs
   };
 };

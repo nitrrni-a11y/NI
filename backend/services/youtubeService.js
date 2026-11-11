@@ -70,6 +70,126 @@ export const extractYouTubeData = async ({
 };
 
 /**
+ * Resolve transcript translation persistence fields consistently across ingestion flows.
+ * Reuses pre-translated English text when provided so the batch pipeline never re-translates.
+ */
+export const resolveTranscriptTranslationFields = (transcriptPayload = {}, fallbackLanguageCode = 'en') => {
+  const rawLang = (
+    transcriptPayload?.detectedLanguage ||
+    transcriptPayload?.detected_language ||
+    transcriptPayload?.languageCode ||
+    fallbackLanguageCode ||
+    'en'
+  ).toString().trim() || 'en';
+
+  const translated = typeof transcriptPayload?.translatedText === 'string'
+    ? transcriptPayload.translatedText.trim()
+    : (typeof transcriptPayload?.translated_text === 'string' ? transcriptPayload.translated_text.trim() : '');
+
+  const status = transcriptPayload?.translationStatus || transcriptPayload?.translation_status || '';
+
+  if (status === 'translated' && translated) {
+    return {
+      detectedLanguage: rawLang,
+      translatedText: translated,
+      processingText: translated,
+      translationStatus: 'translated',
+    };
+  }
+
+  return {
+    detectedLanguage: rawLang,
+    translatedText: '',
+    processingText: '',
+    translationStatus: 'not_required',
+  };
+};
+
+/**
+ * Prepare deduplicated YouTube comment Document records for a video.
+ * Shared across single-URL YouTube ingestion and YouTube Discovery ingestion.
+ */
+export const prepareYouTubeCommentDocs = async ({
+  entityId,
+  batchId,
+  canonicalVideoUrl,
+  videoId,
+  videoTitle = 'YouTube Video',
+  items = [],
+  provenance = 'YouTubeComments',
+  existingCanonicalSet = null
+}) => {
+  const validItems = (Array.isArray(items) ? items : []).filter((c) => {
+    if (!c || c.selected === false) return false;
+    return typeof c.text === 'string' && c.text.trim().length > 0;
+  });
+
+  if (validItems.length === 0) {
+    return { commentDocs: [], commentsSkipped: 0 };
+  }
+
+  const candidateCanonicalUrls = validItems.map(
+    (c) => `${canonicalVideoUrl}#comment_${c.id || c.cid || computeHash(c.text.trim())}`
+  );
+
+  let dedupSet = existingCanonicalSet;
+  if (!dedupSet) {
+    const existingCommentDocs = await Document.find({
+      entityId,
+      canonicalUrl: { $in: candidateCanonicalUrls }
+    }).select('canonicalUrl').lean();
+    dedupSet = new Set(existingCommentDocs.map((d) => d.canonicalUrl));
+  }
+
+  const commentDocs = [];
+  let commentsSkipped = 0;
+
+  for (const comment of validItems) {
+    const commentText = comment.text.trim();
+    const commentId = comment.id || comment.cid || computeHash(commentText);
+    const commentCanonicalUrl = `${canonicalVideoUrl}#comment_${commentId}`;
+
+    if (dedupSet.has(commentCanonicalUrl)) {
+      commentsSkipped++;
+      continue;
+    }
+
+    dedupSet.add(commentCanonicalUrl);
+
+    const publishedRaw = comment.publishedAt || comment.published_at;
+    const parsedDate = publishedRaw ? new Date(publishedRaw) : null;
+    const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
+
+    commentDocs.push({
+      entityId,
+      batchId,
+      title: `Comment by ${comment.author || 'Viewer'} on "${videoTitle || 'YouTube Video'}"`.slice(0, 150),
+      rawText: commentText,
+      source: 'YouTube Comments',
+      sourceType: 'social_media',
+      author: (comment.author || 'Viewer').trim(),
+      url: canonicalVideoUrl,
+      canonicalUrl: commentCanonicalUrl,
+      contentHash: computeHash(commentText),
+      publicationDate: validDate,
+      collectedDate: new Date(),
+      processingStatus: 'not_processed',
+      extractionStatus: 'success',
+      metadata: {
+        provenance,
+        videoId,
+        commentId,
+        likeCount: Number(comment.likeCount ?? comment.like_count) || 0,
+        parentVideoTitle: videoTitle || '',
+        extractionType: 'comment'
+      }
+    });
+  }
+
+  return { commentDocs, commentsSkipped };
+};
+
+/**
  * Ingest extracted YouTube data (transcript, comments, or both) into MongoDB Document collection.
  * Deduplicates comments and creates ProcessingJob for AI pipeline processing.
  */
@@ -108,11 +228,13 @@ export const ingestYouTubeData = async ({
     }).lean();
 
     if (!existingTranscript) {
+      const translationFields = resolveTranscriptTranslationFields(transcript, transcript.languageCode || 'en');
       docsToInsert.push({
         entityId,
         batchId,
         title: (transcript.title || videoTitle || 'YouTube Video Transcript').trim(),
         rawText: transcriptText,
+        ...translationFields,
         source: 'YouTube',
         sourceType: 'YouTube Video',
         author: (transcript.author || videoAuthor || 'Unknown').trim(),
@@ -133,66 +255,20 @@ export const ingestYouTubeData = async ({
   }
 
   // 2. Ingest Comments documents if provided and selected
-  let commentsDiscovered = 0;
   let commentsDuplicatesSkipped = 0;
 
   if (comments && comments.include && Array.isArray(comments.items) && comments.items.length > 0) {
-    commentsDiscovered = comments.items.length;
-
-    // Pre-fetch existing comment documents for this video to ensure deduplication
-    const candidateCanonicalUrls = comments.items
-      .map(c => `${canonicalVideoUrl}#comment_${c.id || c.cid || computeHash(c.text || '')}`);
-
-    const existingCommentDocs = await Document.find({
+    const prepared = await prepareYouTubeCommentDocs({
       entityId,
-      canonicalUrl: { $in: candidateCanonicalUrls }
-    }).select('canonicalUrl').lean();
-
-    const existingCanonicalSet = new Set(existingCommentDocs.map(d => d.canonicalUrl));
-
-    for (const comment of comments.items) {
-      const commentText = (comment.text || '').trim();
-      if (!commentText) continue;
-
-      const commentId = comment.id || comment.cid || computeHash(commentText);
-      const commentCanonicalUrl = `${canonicalVideoUrl}#comment_${commentId}`;
-
-      if (existingCanonicalSet.has(commentCanonicalUrl)) {
-        commentsDuplicatesSkipped++;
-        continue;
-      }
-
-      existingCanonicalSet.add(commentCanonicalUrl);
-
-      const publishedRaw = comment.publishedAt || comment.published_at;
-      const parsedDate = publishedRaw ? new Date(publishedRaw) : null;
-      const validDate = parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate : null;
-
-      docsToInsert.push({
-        entityId,
-        batchId,
-        title: `Comment by ${comment.author || 'Viewer'} on "${videoTitle || 'YouTube Video'}"`.slice(0, 150),
-        rawText: commentText,
-        source: 'YouTube Comments',
-        sourceType: 'social_media',
-        author: (comment.author || 'Viewer').trim(),
-        url: canonicalVideoUrl,
-        canonicalUrl: commentCanonicalUrl,
-        contentHash: computeHash(commentText),
-        publicationDate: validDate,
-        collectedDate: new Date(),
-        processingStatus: 'not_processed',
-        extractionStatus: 'success',
-        metadata: {
-          provenance: 'YouTubeComments',
-          videoId,
-          commentId,
-          likeCount: Number(comment.likeCount ?? comment.like_count) || 0,
-          parentVideoTitle: videoTitle || '',
-          extractionType: 'comment'
-        }
-      });
-    }
+      batchId,
+      canonicalVideoUrl,
+      videoId,
+      videoTitle: videoTitle || 'YouTube Video',
+      items: comments.items,
+      provenance: 'YouTubeComments'
+    });
+    docsToInsert.push(...prepared.commentDocs);
+    commentsDuplicatesSkipped = prepared.commentsSkipped;
   }
 
   if (docsToInsert.length === 0) {

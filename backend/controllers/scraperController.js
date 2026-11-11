@@ -182,12 +182,12 @@ export const ingestLinkedIn = async (req, res) => {
   }
 };
 
-// @desc    Discover LinkedIn posts by organisation & aliases and classify opinions using Allam-2-7B
+// @desc    Discover LinkedIn posts by organisation & aliases and classify opinions using Llama-3.1-8B
 // @route   POST /api/scraper/linkedin/discover
 // @access  Private/Admin
 export const discoverLinkedInOpinions = async (req, res) => {
   try {
-    const { organisation, organization, aliases = [], limit = 20, maxResultsPerQuery } = req.body;
+    const { organisation, organization, aliases = [], limit = 20, maxResultsPerQuery, entityId, entity_id } = req.body;
     const targetOrg = organisation || organization;
 
     if (!targetOrg || typeof targetOrg !== 'string' || !targetOrg.trim()) {
@@ -197,7 +197,8 @@ export const discoverLinkedInOpinions = async (req, res) => {
     const data = await linkedinDiscoveryService.discoverAndClassifyOpinions({
       organisation: targetOrg.trim(),
       aliases: Array.isArray(aliases) ? aliases : [],
-      maxResultsPerQuery: Number(limit || maxResultsPerQuery) || 20
+      maxResultsPerQuery: Number(limit || maxResultsPerQuery) || 20,
+      entityId: entityId || entity_id || null,
     });
 
     res.json(data);
@@ -283,7 +284,16 @@ export const generateYouTubeQueries = async (req, res) => {
 // @access  Private/Admin
 export const discoverYouTubeReviews = async (req, res) => {
   try {
-    const { queries, maxResultsPerQuery, limit, extractTranscripts = true, entityId, entity_id } = req.body;
+    const {
+      queries,
+      maxResultsPerQuery,
+      limit,
+      extractTranscripts = true,
+      extractComments = false,
+      maxComments = 30,
+      entityId,
+      entity_id
+    } = req.body;
 
     if (!queries || !Array.isArray(queries) || queries.length === 0) {
       return res.status(400).json({ message: 'At least one search query is required for YouTube discovery.' });
@@ -293,6 +303,8 @@ export const discoverYouTubeReviews = async (req, res) => {
       queries,
       maxResultsPerQuery: Number(limit || maxResultsPerQuery) || 10,
       extractTranscripts: Boolean(extractTranscripts),
+      extractComments: Boolean(extractComments),
+      maxComments: Math.max(1, Math.min(Number(maxComments) || 30, 500)),
       entityId: entityId || entity_id || null
     });
 

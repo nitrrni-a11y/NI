@@ -198,9 +198,25 @@ class YouTubeExtractResponse(BaseModel):
     estimated_reading_minutes: int = 0
     source: str = "YouTube"
     source_type: str = "YouTube Video"
+    transcript: Optional[Dict[str, Any]] = None
+    comments: Optional[Dict[str, Any]] = None
 
 # ============================================================
-# LINKEDIN OPINION CLASSIFICATION (Allam-2-7B SLM)
+# ON-DEMAND TEXT TRANSLATION
+# ============================================================
+
+class TranslateTextRequest(BaseModel):
+    text: str = Field(..., description="Text to translate into English")
+    source_language: Optional[str] = Field(default=None, description="Optional source language code")
+
+class TranslateTextResponse(BaseModel):
+    original_text: str
+    translated_text: str
+    detected_language: str
+    translation_status: str
+
+# ============================================================
+# LINKEDIN OPINION CLASSIFICATION (Llama-3.1-8B SLM)
 # ============================================================
 
 class LinkedInPostToClassify(BaseModel):
@@ -223,5 +239,3 @@ class LinkedInPostClassification(BaseModel):
 
 class LinkedInClassifyResponse(BaseModel):
     classified_posts: List[LinkedInPostClassification]
-    transcript: Optional[Dict[str, Any]] = None
-    comments: Optional[Dict[str, Any]] = None

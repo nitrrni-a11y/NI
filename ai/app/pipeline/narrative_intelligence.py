@@ -26,8 +26,9 @@ from app.pipeline.narrative_analysis import analyze_narrative_trend, evaluate_di
 load_dotenv(override=True)
 logger = logging.getLogger(__name__)
 
-# Configurable maximum batch size for Gemini LLM requests
+# Configurable maximum batch size and model for Gemini LLM requests
 DEFAULT_BATCH_SIZE = int(os.getenv("GEMINI_MAX_BATCH_SIZE", "5"))
+GEMINI_NARRATIVE_MODEL = os.getenv("GEMINI_NARRATIVE_MODEL", "gemini-3.5-flash-lite")
 
 
 # ============================================================
@@ -180,7 +181,7 @@ Strength Score (0 to 1): {analysis.strength}
         )
         response = generate_with_retry(
             client=client,
-            model="gemini-3.5-flash-lite",
+            model=GEMINI_NARRATIVE_MODEL,
             contents=prompt,
             config=config,
             run_id=run_id,
@@ -321,7 +322,7 @@ CRITICAL RULES:
 
             response = generate_with_retry(
                 client=client,
-                model="gemini-3.5-flash-lite",
+                model=GEMINI_NARRATIVE_MODEL,
                 contents=prompt,
                 config=config,
                 run_id=run_id,
@@ -435,24 +436,44 @@ def _compute_merged_narrative_stats(
         existing_timeline=existing_timeline
     )
 
-    # Re-evaluate display eligibility (e.g. candidate narrative receiving new evidence becomes established)
+    # Incorporate existing narrative context alongside new claims so historical high/critical signals are preserved
+    context_claims = list(new_group_claims)
+    if existing.text and existing.text.strip():
+        hist_sent_label = (
+            "negative" if existing.sentiment <= -0.05
+            else ("positive" if existing.sentiment >= 0.05 else "neutral")
+        )
+        context_claims.insert(0, EnrichedClaim(
+            claim_id=f"{existing.narrative_id}_CTX",
+            document_id="existing_context",
+            text=existing.text.strip(),
+            sentiment=hist_sent_label,
+            sentiment_confidence=round(abs(existing.sentiment), 4),
+            embedding=[],
+            source_metadata={}
+        ))
+
+    direction, priority, pos_sig, class_reason, indicators = classify_narrative_context(
+        claims=context_claims,
+        avg_sentiment=combined_sentiment,
+        sources=combined_sources,
+        trend=combined_trend,
+        total_claim_count=combined_claim_count
+    )
+
+    # Re-evaluate display eligibility (preserving elevated severity visibility for critical/high priorities)
+    merged_severity = priority if priority in ("critical", "high") else "normal"
     display_status, is_eligible, eligibility_reason = evaluate_display_eligibility(
         claim_count=combined_claim_count,
         source_count=combined_source_count,
-        strength=combined_strength
+        strength=combined_strength,
+        severity_level=merged_severity
     )
 
     merged_evidence = NarrativeEvidence(
         claim_ids=combined_claim_ids,
         document_ids=combined_document_ids,
         sources=combined_sources
-    )
-
-    direction, priority, pos_sig, class_reason, indicators = classify_narrative_context(
-        claims=new_group_claims,
-        avg_sentiment=combined_sentiment,
-        sources=combined_sources,
-        trend=combined_trend
     )
 
     merged_analysis = NarrativeAnalysis(
@@ -536,7 +557,7 @@ New Incoming Claims That Triggered This Update:
         )
         response = generate_with_retry(
             client=client,
-            model="gemini-3.5-flash-lite",
+            model=GEMINI_NARRATIVE_MODEL,
             contents=prompt,
             config=config,
             run_id=run_id,
@@ -669,7 +690,7 @@ CRITICAL RULES:
 
             response = generate_with_retry(
                 client=client,
-                model="gemini-3.5-flash-lite",
+                model=GEMINI_NARRATIVE_MODEL,
                 contents=prompt,
                 config=config,
                 run_id=run_id,

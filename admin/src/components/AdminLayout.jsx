@@ -8,7 +8,6 @@ import {
   PlusCircle,
   Cpu,
   Network,
-  GraduationCap,
   Compass,
   Settings,
   LogOut,
@@ -77,7 +76,6 @@ const AdminLayout = () => {
 
   const navItems = [
     { path: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { path: 'institution', label: 'NIT Raipur Web Scraping', icon: <GraduationCap size={18} /> },
     { path: 'data/add?tab=linkedin', key: 'linkedin-scraper', label: 'LinkedIn Post Scraper', icon: <LinkedinIcon size={18} color="#0a66c2" /> },
     { path: 'data/add?tab=youtube', key: 'youtube-extractor', label: 'YouTube Transcript & Comment Extractor', icon: <YoutubeIcon size={18} color="#ef4444" /> },
     { path: 'discovery/youtube', key: 'source-discovery', label: 'Source Discovery', icon: <Compass size={18} color="#0284c7" /> },
@@ -129,7 +127,7 @@ const AdminLayout = () => {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.filter(item => item.path !== 'institution' || selectedEntity?.entityId === 'ENT_45528e0f').map((item) => {
+          {navItems.map((item) => {
             const isActive = isItemActive(item);
             
             return (

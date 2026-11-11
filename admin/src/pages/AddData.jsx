@@ -7,6 +7,7 @@ import {
   MessageSquare, ThumbsUp, CheckSquare, Square, Info, ExternalLink
 } from 'lucide-react';
 import { useEntity } from '../context/EntityContext';
+import YouTubeTranscriptTranslator, { getLanguageDisplayLabel } from '../components/YouTubeTranscriptTranslator';
 
 const YoutubeIcon = ({ size = 18, color = 'currentColor' }) => (
   <svg 
@@ -124,6 +125,16 @@ const AddData = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [ingestionSummary, setIngestionSummary] = useState(null);
 
+  const [ytTranslation, setYtTranslation] = useState({
+    translatedText: '',
+    detectedLanguage: 'en',
+    languageName: 'English',
+    translationStatus: 'not_required',
+    viewMode: 'original',
+  });
+  const [translatingYt, setTranslatingYt] = useState(false);
+  const [ytTranslationError, setYtTranslationError] = useState('');
+
   // --- LINKEDIN FORM STATE ---
   const [linkedInUrl, setLinkedInUrl] = useState('');
   const [linkedInNumComments, setLinkedInNumComments] = useState(100);
@@ -211,6 +222,15 @@ const AddData = () => {
         author: data.author || '',
         publicationDate: data.publication_date || ''
       });
+
+      setYtTranslation({
+        translatedText: '',
+        detectedLanguage: data.transcript?.detected_language || data.detected_language || 'en',
+        languageName: data.transcript?.language_name || data.language_name || 'English',
+        translationStatus: 'not_required',
+        viewMode: 'original',
+      });
+      setYtTranslationError('');
     } catch (err) {
       const errMsg = err.response?.data?.message || err.message || 'Failed to extract selected YouTube data.';
       setExtractionError(errMsg);
@@ -221,7 +241,60 @@ const AddData = () => {
   };
 
   const handleYtFormChange = (e) => {
-    setYtFormData({ ...ytFormData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setYtFormData({ ...ytFormData, [name]: value });
+    if (name === 'rawText') {
+      setYtTranslation((prev) => ({
+        ...prev,
+        translatedText: '',
+        translationStatus: 'not_required',
+        viewMode: 'original',
+      }));
+      setYtTranslationError('');
+    }
+  };
+
+  const handleTranslateYouTube = async () => {
+    if (!ytFormData.rawText || !ytFormData.rawText.trim()) return;
+    if (ytTranslation.translationStatus === 'translated' && ytTranslation.translatedText) {
+      setYtTranslation((prev) => ({ ...prev, viewMode: 'english' }));
+      return;
+    }
+
+    setTranslatingYt(true);
+    setYtTranslationError('');
+    try {
+      const res = await axios.post(
+        '/api/documents/youtube/translate',
+        {
+          text: ytFormData.rawText,
+          sourceLanguage: ytTranslation.detectedLanguage || extractedData?.transcript?.detected_language || null,
+        },
+        { withCredentials: true }
+      );
+
+      if (res.data?.translationStatus === 'translated' && res.data?.translatedText) {
+        setYtTranslation((prev) => ({
+          ...prev,
+          translatedText: res.data.translatedText,
+          detectedLanguage: res.data.detectedLanguage || prev.detectedLanguage,
+          translationStatus: 'translated',
+          viewMode: 'english',
+        }));
+      } else {
+        setYtTranslation((prev) => ({
+          ...prev,
+          detectedLanguage: res.data?.detectedLanguage || prev.detectedLanguage,
+          translationStatus: 'not_required',
+          viewMode: 'original',
+        }));
+        setYtTranslationError('Transcript is already in English; translation is not required.');
+      }
+    } catch (err) {
+      setYtTranslationError(err.response?.data?.message || err.message || 'Failed to translate transcript.');
+    } finally {
+      setTranslatingYt(false);
+    }
   };
 
   const handleSaveYouTubeDoc = async (e) => {
@@ -243,6 +316,9 @@ const AddData = () => {
     setSaveError('');
 
     try {
+      const detectedLang = ytTranslation.detectedLanguage || extractedData?.transcript?.detected_language || 'en';
+      const isPreTranslated = ytTranslation.translationStatus === 'translated' && Boolean(ytTranslation.translatedText?.trim());
+
       const response = await axios.post(
         '/api/documents/youtube/ingest',
         {
@@ -256,6 +332,10 @@ const AddData = () => {
             include: Boolean(hasTranscriptToSave),
             title: ytFormData.title.trim() || 'YouTube Video Transcript',
             rawText: ytFormData.rawText.trim(),
+            languageCode: detectedLang,
+            detectedLanguage: detectedLang,
+            translatedText: isPreTranslated ? ytTranslation.translatedText.trim() : '',
+            translationStatus: isPreTranslated ? 'translated' : 'not_required',
             author: ytFormData.author.trim() || 'Unknown',
             publicationDate: ytFormData.publicationDate || null
           },
@@ -283,6 +363,14 @@ const AddData = () => {
     setSaveError('');
     setSaveSuccess(false);
     setIngestionSummary(null);
+    setYtTranslation({
+      translatedText: '',
+      detectedLanguage: 'en',
+      languageName: 'English',
+      translationStatus: 'not_required',
+      viewMode: 'original',
+    });
+    setYtTranslationError('');
     setYtFormData({
       title: '',
       rawText: '',
@@ -830,7 +918,9 @@ const AddData = () => {
                           <div className="flex flex-wrap gap-2 mb-3">
                             <span className="meta-pill text-xs">
                               <Globe size={13} />
-                              <span>Language: {extractedData.transcript.language_name || extractedData.transcript.detected_language}</span>
+                              <span>
+                                Language: {getLanguageDisplayLabel(ytTranslation.detectedLanguage, ytTranslation.languageName)}
+                              </span>
                             </span>
                             <span className="meta-pill text-xs">
                               <FileText size={13} />
@@ -846,6 +936,19 @@ const AddData = () => {
                               </span>
                             )}
                           </div>
+
+                          <YouTubeTranscriptTranslator
+                            rawText={ytFormData.rawText}
+                            languageCode={ytTranslation.detectedLanguage}
+                            languageName={ytTranslation.languageName}
+                            translatedText={ytTranslation.translatedText}
+                            translationStatus={ytTranslation.translationStatus}
+                            viewMode={ytTranslation.viewMode}
+                            isTranslating={translatingYt}
+                            translationError={ytTranslationError}
+                            onTranslate={handleTranslateYouTube}
+                            onViewModeChange={(mode) => setYtTranslation((prev) => ({ ...prev, viewMode: mode }))}
+                          />
 
                           {/* Editable fields */}
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -871,19 +974,37 @@ const AddData = () => {
                             </div>
                           </div>
 
-                          <div className="form-group add-data-field add-data-field-full">
-                            <label className="form-label text-xs">
-                              Full Transcript Text (Editable)
-                            </label>
-                            <textarea
-                              name="rawText"
-                              className="form-control add-data-control youtube-transcript-textarea"
-                              value={ytFormData.rawText}
-                              onChange={handleYtFormChange}
-                              placeholder="Transcript text..."
-                              style={{ minHeight: '180px' }}
-                            />
-                          </div>
+                          {ytTranslation.viewMode === 'english' && ytTranslation.translationStatus === 'translated' ? (
+                            <div className="form-group add-data-field add-data-field-full">
+                              <label className="form-label text-xs" style={{ color: 'var(--status-success)', fontWeight: 600 }}>
+                                English Translation Preview (Cached — both original &amp; English translation will be persisted to DB)
+                              </label>
+                              <textarea
+                                className="form-control add-data-control youtube-transcript-textarea"
+                                value={ytTranslation.translatedText}
+                                readOnly
+                                style={{
+                                  minHeight: '180px',
+                                  background: 'var(--surface-color-soft)',
+                                  borderColor: 'rgba(16, 185, 129, 0.35)',
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div className="form-group add-data-field add-data-field-full">
+                              <label className="form-label text-xs">
+                                Full Transcript Text (Original — Editable)
+                              </label>
+                              <textarea
+                                name="rawText"
+                                className="form-control add-data-control youtube-transcript-textarea"
+                                value={ytFormData.rawText}
+                                onChange={handleYtFormChange}
+                                placeholder="Transcript text..."
+                                style={{ minHeight: '180px' }}
+                              />
+                            </div>
+                          )}
                         </>
                       ) : (
                         <div className="p-3 rounded border text-sm" style={{ background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.25)', color: 'var(--text-primary)' }}>

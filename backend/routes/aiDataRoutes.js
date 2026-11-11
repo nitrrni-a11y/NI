@@ -8,14 +8,14 @@ import {
   startProcessingJob,
   stopProcessingJob
 } from '../controllers/aiDataController.js';
-import { protect, admin } from '../middleware/authMiddleware.js';
+import { protect, optionalProtect, admin } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Publicly available (to authenticated users)
+// Public / consumer routes (optionalProtect allows admins full visibility while scoping public/non-admins to published)
 router.get('/sources', protect, getSources);
-router.get('/narratives', getNarratives);
-router.get('/narratives/:id', getNarrativeById);
+router.get('/narratives', optionalProtect, getNarratives);
+router.get('/narratives/:id', optionalProtect, getNarrativeById);
 
 // Admin only routes
 router.get('/processing/status', protect, admin, getProcessingStatus);

@@ -164,7 +164,7 @@ Respond ONLY with a JSON object matching this schema:
 }}
 """
 
-    model = os.getenv("GROQ_TOPIC_MODEL", "allam-2-7b")
+    model = os.getenv("GROQ_TOPIC_MODEL", "llama-3.1-8b-instant")
     proposed_name = "General"
     is_new = True
 

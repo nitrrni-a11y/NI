@@ -319,6 +319,53 @@ def translate_text(
     return " ".join(translated_chunks)
 
 
+def translate_on_demand(text: str, source_language: Optional[str] = None) -> Dict[str, str]:
+    """
+    On-demand language detection and chunked Gemini English translation for preview UI.
+    Reuses detect_language, split_text_into_chunks, and _translate_chunk_with_gemini.
+    """
+    cleaned = text.strip() if isinstance(text, str) else ""
+    if not cleaned:
+        raise ValueError("Text is required for translation.")
+
+    hint = (source_language or "").strip()
+    detected_lang, _ = detect_language(cleaned)
+
+    # Prefer explicit non-English hint (e.g. hi, te) unless script detection found another specific non-English script
+    if hint and not hint.lower().startswith("en") and hint.lower() != "unknown":
+        effective_lang = detected_lang if detected_lang not in ("en", "unknown") else hint
+    else:
+        effective_lang = detected_lang
+
+    # Already pure English and no explicit non-English source hint -> skip unnecessary Gemini call
+    if effective_lang == "en":
+        return {
+            "original_text": text,
+            "translated_text": cleaned,
+            "detected_language": "en",
+            "translation_status": "not_required",
+        }
+
+    translated = translate_text(
+        cleaned,
+        source_lang=effective_lang,
+        target_lang="en",
+        max_retries=3,
+        doc_id="on_demand_preview",
+        model=DEFAULT_TRANSLATION_MODEL,
+    )
+
+    if not translated or not translated.strip():
+        raise ValueError("Translation returned empty output.")
+
+    return {
+        "original_text": text,
+        "translated_text": translated.strip(),
+        "detected_language": effective_lang,
+        "translation_status": "translated",
+    }
+
+
 def process_document_language(
     preprocessed_doc: PreprocessedDocument,
     raw_doc: Optional[RawDocument] = None,
@@ -335,13 +382,39 @@ def process_document_language(
     cleaned_text = preprocessed_doc.original_text or preprocessed_doc.text or ""
     doc_id = preprocessed_doc.document_id
 
-    # 1. Detect language
+    # 1. Check for existing valid cached translation FIRST (never re-detect or re-translate if cached)
+    cached_translation = getattr(raw_doc, "translated_text", None) if raw_doc else None
+    cached_status = getattr(raw_doc, "translation_status", None) if raw_doc else None
+    if cached_translation and cached_translation.strip():
+        raw_orig = getattr(raw_doc, "original_text", None) or getattr(raw_doc, "text", "") or ""
+        normalized_orig = re.sub(r'\s+', ' ', raw_orig).strip()
+        normalized_cleaned = re.sub(r'\s+', ' ', cleaned_text).strip()
+        if cached_status == "translated" or (normalized_orig and normalized_orig == normalized_cleaned):
+            raw_lang = getattr(raw_doc, "detected_language", None) or preprocessed_doc.detected_language
+            detected_lang = raw_lang if (raw_lang and raw_lang != "unknown") else "unknown"
+            preprocessed_doc.detected_language = detected_lang
+            preprocessed_doc.metadata["detected_language"] = detected_lang
+            preprocessed_doc.metadata["language_confidence"] = 1.0
+            preprocessed_doc.translation_status = "translated"
+            preprocessed_doc.translated_text = cached_translation.strip()
+            preprocessed_doc.processing_text = cached_translation.strip()
+            preprocessed_doc.text = preprocessed_doc.processing_text
+            preprocessed_doc.metadata["translation_source"] = "cached"
+            preprocessed_doc.metadata["translation_provider"] = "gemini"
+            preprocessed_doc.metadata["translation_model"] = DEFAULT_TRANSLATION_MODEL
+            logger.info(
+                f"[Translation] Doc: {doc_id} | Detected: {detected_lang} | "
+                f"Needed: True | Status: translated | translation_source = \"cached\" | Duration: 0.00s"
+            )
+            return preprocessed_doc
+
+    # 2. Detect language
     detected_lang, confidence = detect_language(cleaned_text)
     preprocessed_doc.detected_language = detected_lang
     preprocessed_doc.metadata["detected_language"] = detected_lang
     preprocessed_doc.metadata["language_confidence"] = confidence
 
-    # 2. Case: Empty or unidentifiable text
+    # 3. Case: Empty or unidentifiable text
     if not cleaned_text.strip() or detected_lang == "unknown":
         preprocessed_doc.translation_status = "skipped"
         preprocessed_doc.processing_text = cleaned_text
@@ -349,27 +422,13 @@ def process_document_language(
         logger.info(f"[Translation] Doc: {doc_id} | Detected: {detected_lang} | Needed: False | Status: skipped | Duration: 0.00s")
         return preprocessed_doc
 
-    # 3. Case: English text -> Translation not required
+    # 4. Case: English text -> Translation not required
     if detected_lang == "en":
         preprocessed_doc.translation_status = "not_required"
         preprocessed_doc.processing_text = cleaned_text
         preprocessed_doc.text = cleaned_text
         logger.info(f"[Translation] Doc: {doc_id} | Detected: en (conf: {confidence:.2f}) | Needed: False | Status: not_required | Duration: 0.00s")
         return preprocessed_doc
-
-    # 4. Case: Non-English text -> Check for existing valid cached translation first
-    if raw_doc and getattr(raw_doc, "translated_text", None) and raw_doc.translated_text.strip():
-        raw_orig = getattr(raw_doc, "original_text", None) or getattr(raw_doc, "text", "")
-        if getattr(raw_doc, "translation_status", None) == "translated" or (raw_orig and raw_orig.strip() == cleaned_text.strip()):
-            preprocessed_doc.translation_status = "translated"
-            preprocessed_doc.translated_text = raw_doc.translated_text.strip()
-            preprocessed_doc.processing_text = raw_doc.translated_text.strip()
-            preprocessed_doc.text = preprocessed_doc.processing_text
-            preprocessed_doc.metadata["translation_source"] = "cached"
-            preprocessed_doc.metadata["translation_provider"] = "gemini"
-            preprocessed_doc.metadata["translation_model"] = DEFAULT_TRANSLATION_MODEL
-            logger.info(f"[Translation] Doc: {doc_id} | Detected: {detected_lang} | Needed: True | Status: translated (cached) | Duration: 0.00s")
-            return preprocessed_doc
 
     # 5. Non-English text -> Perform translation with Gemini LLM (with chunking)
     t_start = time.time()

@@ -247,7 +247,8 @@ def classify_narrative_context(
     claims: List[EnrichedClaim],
     avg_sentiment: float,
     sources: List[str],
-    trend: str = "Stable"
+    trend: str = "Stable",
+    total_claim_count: Optional[int] = None
 ) -> Tuple[str, str, str, str, List[str]]:
     """
     Context-aware narrative classification:
@@ -258,7 +259,7 @@ def classify_narrative_context(
     Positive Significances: 'significant', 'notable', 'general', 'none'
     """
     all_texts = " ".join([c.text.lower() for c in claims if hasattr(c, 'text') and c.text])
-    claim_count = len(claims)
+    claim_count = total_claim_count if total_claim_count is not None else len(claims)
     source_count = len(sources)
     
     pos_count = sum(1 for c in claims if getattr(c, 'sentiment', '') == 'positive')

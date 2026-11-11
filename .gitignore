@@ -1,34 +1,39 @@
-# General Environment Variables
+# Environment & Secrets (Keep .env.example templates tracked)
 .env
 .env.*
 !.env.example
+*/.env
+*/.env.*
+!*/.env.example
+*.local
 
-# OS Files
-.DS_Store
-Thumbs.db
-
-# General Logs
-*.log
+# Node.js & Frontend Build Artifacts
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+.vercel/
+.npm/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Node.js (frontend, backend, admin)
-node_modules/
-dist/
-build/
-.npm/
-
-# Python (ai layer)
+# Python & AI Microservice Artifacts
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -43,20 +48,20 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
-# Pytest
 .pytest_cache/
+.benchmarks/
+.coverage
+htmlcov/
+.cache/
+huggingface_cache/
 
-# Virtual Environments
-venv/
-.venv/
-env/
-ENV/
-env.bak/
-venv.bak/
-
-# IDEs and Editors
-.vscode/
+# OS, IDE & Logs
+.DS_Store
+Thumbs.db
+logs/
+*.log
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
