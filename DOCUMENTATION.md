@@ -82,7 +82,7 @@ Both sibling client applications (`frontend` and `admin`) communicate strictly w
 - **Transport & Proxy Configuration:**
   - `frontend/src/services/api.js` and `admin/src/services/api.js` both instantiate Axios with `baseURL: import.meta.env.VITE_API_URL || '/api'` and `withCredentials: true`.
   - In development, `frontend/vite.config.js` (port `5173`) and `admin/vite.config.js` (port `5174`) proxy `/api/*` directly to `http://localhost:5000`.
-  - Backend CORS (`backend/server.js`) whitelists `http://localhost:5173`, `http://localhost:5174`, `http://127.0.0.1:5173`, `http://127.0.0.1:5174`, `process.env.FRONTEND_URL`, and `process.env.ADMIN_URL` with `credentials: true`.
+  - Backend CORS (`backend/server.js`) whitelists the deployed public and admin Vercel origins, the local development origins, and any comma-separated origins in `FRONTEND_URL` and `ADMIN_URL`, with `credentials: true`.
 - **Authentication Contract:**
   - Authentication relies on an HTTP-only cookie named `jwt` signed with `JWT_SECRET` (`sameSite: 'strict'`, `30d` expiration).
   - Protected routes validate `req.cookies.jwt` via `protect`; admin-only endpoints additionally enforce `req.user.role === 'admin'` via `admin`.
@@ -727,8 +727,8 @@ Both Python and Node.js run matching deterministic classification passes (Node.j
 | `PORT` | No | `5000` | Express server listen port (`0.0.0.0`) |
 | `MONGODB_URI` | **Yes** | — | MongoDB connection URI (Atlas SRV or local) |
 | `JWT_SECRET` | **Yes** | — | Secret key for signing HTTP-only auth cookies |
-| `FRONTEND_URL` | No | `http://localhost:5173` | Allowed CORS origin for public frontend |
-| `ADMIN_URL` | No | `http://localhost:5174` | Allowed CORS origin for admin frontend |
+| `FRONTEND_URL` | No | `http://localhost:5173` | Allowed CORS origin(s) for public frontend; separate multiple origins with commas |
+| `ADMIN_URL` | No | `http://localhost:5174` | Allowed CORS origin(s) for admin frontend; separate multiple origins with commas |
 | `AI_SERVICE_URL` | No | `http://127.0.0.1:8000` | Base URL for Python FastAPI microservice (automatically normalizes `localhost` → `127.0.0.1` to prevent IPv6 `::1` `ECONNREFUSED`) |
 | `APIFY_API_TOKEN` | Cond. | — | Required for LinkedIn Scraper, LinkedIn Discovery, and YouTube Discovery |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | No | `admin@example.com`, `12345678`, `System Admin` | Used by `backend/seed_data.js` |

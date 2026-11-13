@@ -57,6 +57,13 @@ ADMIN_NAME=Super Admin
 
 *(Note: Replace `MONGODB_URI` if you are using MongoDB Atlas.)*
 
+### Render + Vercel deployment
+
+In the Render backend service, set `FRONTEND_URL` to `https://ni-lilac.vercel.app`
+and `ADMIN_URL` to `https://ni-admin.vercel.app`, then redeploy the backend.
+In each Vercel project, set `VITE_API_URL` to
+`https://ni-backend-fbgd.onrender.com` and redeploy the frontend.
+
 ## Installation & Setup
 
 1. **Install Backend Dependencies**

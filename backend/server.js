@@ -40,6 +40,7 @@ const envOrigins = [process.env.ADMIN_URL, process.env.FRONTEND_URL]
   .filter(Boolean);
 
 const allowedOrigins = Array.from(new Set([
+  'https://ni-lilac.vercel.app',
   'https://ni-admin.vercel.app',
   'http://localhost:5174',
   'http://localhost:5173',
